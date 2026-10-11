@@ -286,10 +286,11 @@ class Cacador:
         limite = timedelta(hours=self.cfg.locate_rechecar_apos_horas)
         return ultima is None or agora - ultima >= limite
 
-    async def locate(self, consulta, ao_rechecar=None):
-        achados = busca.buscar(consulta, db.listar_perfumes(self.con))
+    async def locate(self, consulta, ao_rechecar=None, marca=None):
+        achados = busca.buscar(consulta, db.listar_perfumes(self.con), marca=marca)
         if not achados:
-            return RespostaLocate(texto="Não achei esse perfume. Use `/add` pra começar a vigiar.")
+            alvo = f"**{consulta}**" + (f" da marca **{marca}**" if marca else "")
+            return RespostaLocate(texto=f"Não achei {alvo} nos perfumes vigiados. Use `/add` pra começar a vigiar.")
 
         perfumes = [p for p, _ in achados]
         anuncios = [a for p in perfumes for a in db.listar_anuncios(self.con, p["id"], so_ativos=True)]

@@ -94,9 +94,33 @@ def pontuar(palavras_consulta, perfume):
     return melhor
 
 
-def buscar(consulta, perfumes, limite=LIMITE_MATCH, janela=JANELA_MATCH):
+LIMITE_MARCA = 85
+
+
+def marca_bate(marca_consulta, marca_perfume):
+    """'dior' bate com 'Dior' e 'Christian Dior'; 'boticario' com 'O Boticário'.
+    Perfume sem marca cadastrada não é descartado (não dá pra saber)."""
+    if not marca_perfume:
+        return True
+    a, b = normalizar(marca_consulta), normalizar(marca_perfume)
+    if not a or not b:
+        return True
+    if len(a) >= 3 and (a in b or b in a):
+        return True
+    return fuzz.ratio(a, b) >= LIMITE_MARCA or any(fuzz.ratio(a, palavra) >= LIMITE_MARCA for palavra in b.split())
+
+
+def filtrar_por_marca(perfumes, marca):
+    if not marca or not normalizar(marca):
+        return list(perfumes)
+    return [p for p in perfumes if marca_bate(marca, p.get("marca"))]
+
+
+def buscar(consulta, perfumes, limite=LIMITE_MATCH, janela=JANELA_MATCH, marca=None):
     """perfumes: lista de dicts com nome, marca, apelidos, concentracao.
+    marca (opcional) filtra antes de comparar os nomes.
     Devolve [(perfume, score)] do melhor pro pior."""
+    perfumes = filtrar_por_marca(perfumes, marca)
     consulta_norm = normalizar(consulta)
     if not consulta_norm:
         return []

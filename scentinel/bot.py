@@ -145,12 +145,21 @@ class BotScentinel(discord.Client):
 
 async def autocomplete_perfume(interaction, atual):
     bot = interaction.client
-    perfumes = db.listar_perfumes(bot.con)
+    marca = getattr(interaction.namespace, "marca", None)  # se a marca já foi preenchida, filtra por ela
+    perfumes = busca.filtrar_por_marca(db.listar_perfumes(bot.con), marca)
     if atual.strip():
         achados = [p for p, _ in busca.buscar(atual, perfumes, limite=60, janela=100)]
     else:
         achados = perfumes
     return [app_commands.Choice(name=p["nome"][:100], value=p["nome"][:100]) for p in achados[:25]]
+
+
+async def autocomplete_marca(interaction, atual):
+    bot = interaction.client
+    marcas = sorted({p["marca"] for p in db.listar_perfumes(bot.con) if p.get("marca")}, key=str.lower)
+    if atual.strip():
+        marcas = [m for m in marcas if busca.marca_bate(atual, m)]
+    return [app_commands.Choice(name=m[:100], value=m[:100]) for m in marcas[:25]]
 
 
 async def autocomplete_anuncio(interaction, atual):
@@ -175,16 +184,19 @@ async def autocomplete_anuncio(interaction, atual):
 
 def registrar_comandos(tree):
     @tree.command(name="locate", description="Procura um perfume em todos os anúncios e mostra a maior promo")
-    @app_commands.describe(nome="Nome do perfume (pode ser aproximado, ex.: 'bleu edp')")
-    @app_commands.autocomplete(nome=autocomplete_perfume)
-    async def locate(interaction: discord.Interaction, nome: str):
+    @app_commands.describe(
+        nome="Nome do perfume (pode ser aproximado, ex.: 'sauvage edp')",
+        marca="Marca (opcional, ex.: 'dior')",
+    )
+    @app_commands.autocomplete(nome=autocomplete_perfume, marca=autocomplete_marca)
+    async def locate(interaction: discord.Interaction, nome: str, marca: str | None = None):
         bot = interaction.client
         await interaction.response.defer(thinking=True)
 
         async def avisar_rechecagem(n):
             await interaction.edit_original_response(content=f"⏳ checando {n} loja(s)...")
 
-        resposta = await bot.cacador.locate(nome, ao_rechecar=avisar_rechecagem)
+        resposta = await bot.cacador.locate(nome, ao_rechecar=avisar_rechecagem, marca=marca)
         if resposta.texto:
             await interaction.edit_original_response(content=resposta.texto)
             return
@@ -203,6 +215,7 @@ def registrar_comandos(tree):
         marca="Marca (opcional, ajuda na busca)",
         seletor="Seletor CSS do preço (plano B, só se a leitura automática falhar)",
     )
+    @app_commands.autocomplete(marca=autocomplete_marca)
     async def add(
         interaction: discord.Interaction,
         url: str,

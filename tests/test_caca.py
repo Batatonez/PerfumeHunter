@@ -348,3 +348,17 @@ def test_ranquear_empate_ganha_menor_preco(ambiente):
     melhor, em_promo, outros, _ = ranquear([oferta(1, 500, 15), oferta(2, 400, 15), oferta(3, 300, 12)])
     assert melhor.anuncio_id == 2 and em_promo
     assert [o.anuncio_id for o in outros] == [1, 3]
+
+
+def test_locate_com_marca(ambiente):
+    anuncio, _ = cadastrar(ambiente, "https://loja-a.com/sauvage", "Sauvage EDP")
+    db.criar_perfume(ambiente.con, "Sauvage Imitação", "sauvage imitacao", marca="Genérica")
+    ambiente.con.execute("UPDATE perfumes SET marca = 'Dior' WHERE id = ?", (anuncio["perfume_id"],))
+    ambiente.con.commit()
+
+    r = rodar(ambiente.cacador.locate("sauvage", marca="dior"))
+    assert r.melhor.perfume == "Sauvage EDP"
+    assert r.outras_variacoes == []  # a "imitação" de outra marca ficou de fora
+
+    r2 = rodar(ambiente.cacador.locate("sauvage", marca="chanel"))
+    assert "da marca **chanel**" in r2.texto

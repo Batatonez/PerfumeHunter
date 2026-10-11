@@ -82,3 +82,36 @@ def test_apelido_e_marca():
 def test_nada_bate():
     assert buscar("one million", CATALOGO) == []
     assert buscar("", CATALOGO) == []
+
+
+# ============================================================
+# marca
+# ============================================================
+
+@pytest.mark.parametrize(
+    "consulta, marca, bate",
+    [
+        ("dior", "Dior", True),
+        ("Dior", "Christian Dior", True),
+        ("boticario", "O Boticário", True),
+        ("boticário", "O Boticário", True),
+        ("chanel", "Chanel", True),
+        ("chanell", "Chanel", True),   # erro de digitação
+        ("dior", "Chanel", False),
+        ("natura", "O Boticário", False),
+        ("dior", None, True),          # perfume sem marca cadastrada não é descartado
+    ],
+)
+def test_marca_bate(consulta, marca, bate):
+    from scentinel.busca import marca_bate
+
+    assert marca_bate(consulta, marca) is bate
+
+
+def test_buscar_com_marca_filtra():
+    # "sauvage" sem marca acha as 3 variações da Dior
+    assert len(buscar("sauvage", CATALOGO)) == 3
+    assert set(nomes(buscar("sauvage", CATALOGO, marca="dior"))) == {"Sauvage EDP", "Sauvage EDT", "Sauvage Elixir"}
+    assert buscar("sauvage", CATALOGO, marca="chanel") == []
+    assert nomes(buscar("bleu", CATALOGO, marca="chanel")) == ["Bleu de Chanel Eau de Parfum"]
+    assert nomes(buscar("malbec", CATALOGO, marca="boticario")) == ["Malbec"]

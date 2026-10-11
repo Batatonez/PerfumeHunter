@@ -263,7 +263,7 @@ Reinicie com a tampa fechada (`sudo reboot`). Espere uns 2 minutos e veja se o b
 
 | Comando | Quem | O que faz |
 |---|---|---|
-| `/locate nome` | todo mundo | procura em todos os anúncios cadastrados e mostra a **maior promo**, os próximos colocados e o **menor R$/ml**. Aceita nome aproximado (`bleu edp`, `savage`). Se a leitura estiver velha, rechecha na hora. |
+| `/locate nome [marca]` | todo mundo | procura em todos os anúncios cadastrados e mostra a **maior promo**, os próximos colocados e o **menor R$/ml**. Aceita nome aproximado (`bleu edp`, `savage`) e filtra pela marca se você preencher (`/locate nome:sauvage marca:dior`). Se a leitura estiver velha, rechecha na hora. |
 | `/add url nome ml [alvo] [marca] [seletor]` | dono | cadastra um anúncio, **testa o preço na hora** e mostra o que leu |
 | `/remove anuncio` | dono | para de vigiar (tem autocomplete) |
 | `/lista` | todo mundo | tudo que está sendo vigiado, com o último preço |
