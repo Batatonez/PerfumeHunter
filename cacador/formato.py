@@ -13,8 +13,8 @@ try:
 except ImportError:  # pragma: no cover
     ZoneInfo = None
 
-COR_ALVO = 0x3498DB
-COR_NEUTRA = 0x95A5A6
+COR_ALVO = 0x2024CC  # azul da foto do bot
+COR_NEUTRA = 0x15155F  # azul-marinho da foto do bot
 LIMITE_DESCRICAO = 4000
 
 

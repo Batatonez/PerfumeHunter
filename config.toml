@@ -49,6 +49,7 @@ backoff_max_horas = 48
 # ------------------------------------------------------------
 # Níveis de promo (desconto vs preço de referência)
 # ping = marca o dono · rechecar = baixa de novo antes de avisar
+# cores: degradê do azul da foto do bot (claro -> forte, 💎 elétrico)
 # ------------------------------------------------------------
 
 [[niveis]]
@@ -56,7 +57,7 @@ nivel = 1
 nome = "Cheirinho"
 emoji = "🟢"
 min_pct = 10
-cor = "#2ECC71"
+cor = "#A1A4E8"
 ping = false
 
 [[niveis]]
@@ -64,7 +65,7 @@ nivel = 2
 nome = "Elogio"
 emoji = "🟡"
 min_pct = 20
-cor = "#F1C40F"
+cor = "#7D82DE"
 ping = false
 
 [[niveis]]
@@ -72,7 +73,7 @@ nivel = 3
 nome = "Rastro"
 emoji = "🟠"
 min_pct = 30
-cor = "#E67E22"
+cor = "#4F55E0"
 ping = false
 
 [[niveis]]
@@ -80,7 +81,7 @@ nivel = 4
 nome = "Fera"
 emoji = "🔴"
 min_pct = 40
-cor = "#E74C3C"
+cor = "#2024CC"
 ping = true
 
 [[niveis]]
@@ -88,6 +89,6 @@ nivel = 5
 nome = "Bug de preço"
 emoji = "💎"
 min_pct = 50
-cor = "#00D2FF"
+cor = "#00C8FF"
 ping = true
 rechecar = true
