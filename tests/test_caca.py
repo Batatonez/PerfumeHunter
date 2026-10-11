@@ -362,3 +362,21 @@ def test_locate_com_marca(ambiente):
 
     r2 = rodar(ambiente.cacador.locate("sauvage", marca="chanel"))
     assert "da marca **chanel**" in r2.texto
+
+
+def test_migracao_de_banco_antigo(tmp_path):
+    """Banco criado pela versão antiga (sem as colunas novas) é atualizado no start."""
+    import sqlite3
+
+    arq = tmp_path / "velho.db"
+    velho = sqlite3.connect(arq)
+    velho.executescript(db.ESQUEMA)
+    velho.execute("INSERT INTO perfumes (nome, nome_norm, criado_em) VALUES ('X', 'x', '2026-01-01')")
+    velho.execute("INSERT INTO anuncios (perfume_id, loja, url, criado_em) VALUES (1, 'L', 'https://l/x', '2026-01-01')")
+    velho.commit()
+    velho.close()
+
+    con = db.conectar(arq)
+    a = db.anuncio_por_url(con, "https://l/x")
+    assert a["origem"] == "manual" and a["catalogo_id"] is None and a["oficial"] == 0
+    db.conectar(arq)  # rodar de novo não quebra

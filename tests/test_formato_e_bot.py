@@ -81,7 +81,7 @@ def test_comandos_registram_sem_erro():
     bot = BotScentinel(config.carregar_config(), segredos, db.conectar(":memory:"))
     registrar_comandos(bot.tree)
     nomes = {c.name for c in bot.tree.get_commands()}
-    assert nomes == {"locate", "add", "remove", "lista", "historico", "checar", "teste_alerta"}
+    assert nomes == {"locate", "add", "remove", "lista", "historico", "checar", "teste_alerta", "top"}
 
 
 def test_bot_fora_do_servidor_mostra_link_de_convite(caplog):
@@ -112,7 +112,7 @@ def test_montar_mencao():
     from scentinel.bot import montar_mencao
 
     texto, permitidas = montar_mencao("everyone", 42, pode_everyone=True)
-    assert texto == "@everyone" and permitidas.everyone
+    assert texto == "@everyone <@42>" and permitidas.everyone and permitidas.users
 
     # sem permissão: não finge que marcou todo mundo, mas marca o dono
     texto, permitidas = montar_mencao("everyone", 42, pode_everyone=False)

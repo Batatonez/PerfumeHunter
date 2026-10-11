@@ -4,7 +4,7 @@
 
 *O gato de guarda dos perfumes.*
 
-Bot de Discord que vigia preço de perfume (Mercado Livre, Boticário, Natura e lojas de perfume), avisa quando entra promo, classificada em **níveis**, e responde `/locate nome` com a maior promo entre todos os anúncios cadastrados.
+Bot de Discord que funciona como um **canal de promos de perfume**: procura sozinho ofertas de ~80 perfumes cobiçados (designer, nicho, árabes e nacionais) no Mercado Livre e em lojas como Sephora, Época, Beleza na Web, Boticário e Natura, posta as melhores classificadas em **níveis**, manda um **🏆 Top do dia** e responde `/locate nome [marca]` com a maior promo. Também vigia links específicos que você cadastrar com `/add`.
 
 Feito pra rodar 24/7 num notebook velho (3 GB de RAM): sem navegador headless, uma requisição por vez e uns 60 MB de RAM.
 
@@ -21,6 +21,7 @@ Feito pra rodar 24/7 num notebook velho (3 GB de RAM): sem navegador headless, u
 6. [Notebook: não dormir, tampa e Wi-Fi](#6-notebook-não-dormir-tampa-e-wi-fi)
 7. [Comandos](#7-comandos)
 8. [Níveis e regras de aviso](#8-níveis-e-regras-de-aviso)
+8.5. [Canal de promos (busca automática)](#85-canal-de-promos-busca-automática)
 9. [Quando uma loja não funciona](#9-quando-uma-loja-não-funciona)
 10. [Dia a dia](#10-dia-a-dia)
 11. [Migrar pro Ubuntu Server](#11-migrar-pro-ubuntu-server)
@@ -266,6 +267,7 @@ Reinicie com a tampa fechada (`sudo reboot`). Espere uns 2 minutos e veja se o b
 | `/locate nome [marca]` | todo mundo | procura em todos os anúncios cadastrados e mostra a **maior promo**, os próximos colocados e o **menor R$/ml**. Aceita nome aproximado (`bleu edp`, `savage`) e filtra pela marca se você preencher (`/locate nome:sauvage marca:dior`). Se a leitura estiver velha, rechecha na hora. |
 | `/add url nome ml [alvo] [marca] [seletor]` | dono | cadastra um anúncio, **testa o preço na hora** e mostra o que leu |
 | `/remove anuncio` | dono | para de vigiar (tem autocomplete) |
+| `/top` | todo mundo | as melhores promos das últimas 24 h, uma por perfume |
 | `/lista` | todo mundo | tudo que está sendo vigiado, com o último preço |
 | `/historico nome` | todo mundo | mínimo, máximo, mediana de 30 dias e último preço de cada loja |
 | `/checar` | dono | força uma rodada agora (pula o que foi checado há menos de 30 min) |
@@ -291,7 +293,7 @@ O desconto é calculado contra um **preço de referência honesto**:
 | 2 | 🟡 Elogio | 20–29% | – |
 | 3 | 🟠 Rastro | 30–39% | – |
 | 4 | 🔴 Fera | 40–49% | @você |
-| 5 | 💎 Bug de preço | 50%+ | **@everyone** + rechecagem |
+| 5 | 💎 Bug de preço | 50%+ | **@everyone** + @você + rechecagem |
 
 Anti-spam:
 - Só avisa quando o anúncio **sobe de nível**. Mesmo nível ou nível menor não repete.
@@ -308,6 +310,32 @@ Educação com as lojas (não negociável):
 - uma requisição por vez, com 5 a 15 s de espera entre elas;
 - se a loja bloquear (403/429/captcha), ele avisa no canal uma vez e espera 6 h, 12 h, 24 h... (máximo 48 h);
 - nada de proxy, anti-captcha ou login falso.
+
+---
+
+## 8.5. Canal de promos (busca automática)
+
+O bot pega cada perfume do `catalogo.toml` e busca nas lojas do `config.toml` (seção `[descoberta]`), uma busca por vez com pausa educada entre elas. Cada perfume é buscado em cada loja no máximo a cada 6 h.
+
+O que ele faz com o que acha:
+- **Descarta o que não é o frasco:** kit, decant, amostra, miniatura, tester, contratipo, "inspirado em", body splash, hidratante. ("Desodorante Colônia" do Boticário/Natura é perfume e **entra**.)
+- **Confere se é o perfume certo:** marca, nome, concentração (Sauvage EDT ≠ EDP ≠ Elixir), público (212 VIP masculino ≠ feminino) e tamanho. Anúncio sem ml no título fica de fora (não dá pra comparar preço).
+- **Compara com o preço normal de mercado** do catálogo, com o histórico real de 30 dias e com o "de R$" da loja, e fica sempre com o **menor** dos três (assim promo falsa de "de R$ 999 por R$ 699" não passa).
+- **Posta só o que vale:** a partir do nível 2 (20% abaixo da referência), ou abaixo do "preço bom" do perfume. Se o mesmo perfume e tamanho estiver mais barato em outra loja, posta só o mais barato. No máximo 10 posts por hora.
+- **🏆 Top do dia** às 19h com os 5 melhores (um por perfume). `/top` mostra na hora.
+- Loja que bloquear é pausada (6 h, 12 h, 24 h...) e avisada uma vez no canal. Loja que só dá erro (provavelmente não tem essa busca) é pausada por 24 h, sem avisar.
+
+**Testar quais lojas funcionam** (no notebook; daqui do Claude as lojas são bloqueadas):
+
+```bash
+.venv/bin/python -m scentinel lojas                          # busca "sauvage dior" em todas
+.venv/bin/python -m scentinel lojas --termo "lattafa khamrah"
+.venv/bin/python -m scentinel lojas --so boticario --termo "malbec"
+```
+
+Nas que derem ❌, coloque `ativo = false` no `config.toml`. Mercado Livre: por padrão só entra **loja oficial** (tem muito perfume falsificado lá). Se a API do ML pedir login, ele usa a página de busca; ou crie um app grátis em developers.mercadolivre.com.br e coloque `ML_CLIENT_ID` e `ML_CLIENT_SECRET` no `.env`.
+
+**Mexer no catálogo:** abra o `catalogo.toml`. Cada perfume tem preço normal, "preço bom", termos de busca e palavras a evitar (flankers). Os preços vêm estimados; ajuste à vontade e reinicie o bot.
 
 ---
 

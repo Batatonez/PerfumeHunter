@@ -57,22 +57,27 @@ class Cacador:
         self.relogio = relogio
         self.lock = asyncio.Lock()  # uma requisição por vez, sempre
         self._ultimo_request = None
+        self.catalogo = {}  # id -> catalogo.ItemCatalogo (preenchido pela busca automática)
 
     # ------------------------------------------------------------
     # rede
     # ------------------------------------------------------------
 
-    async def _baixar(self, anuncio):
-        """Baixa numa thread, respeitando o delay aleatório entre requisições."""
+    async def na_vez(self, funcao, *args):
+        """Roda uma requisição (função síncrona) numa thread, respeitando o delay
+        aleatório desde a requisição anterior. Vale pra página, busca e API."""
         if self._ultimo_request is not None:
             alvo = random.uniform(self.cfg.delay_min_s, self.cfg.delay_max_s)
             espera = alvo - (time.monotonic() - self._ultimo_request)
             if espera > 0:
                 await self.dormir(espera)
         try:
-            return await asyncio.to_thread(self.baixar, anuncio["url"], anuncio["seletor"])
+            return await asyncio.to_thread(funcao, *args)
         finally:
             self._ultimo_request = time.monotonic()
+
+    async def _baixar(self, anuncio):
+        return await self.na_vez(self.baixar, anuncio["url"], anuncio["seletor"])
 
     # ------------------------------------------------------------
     # avaliação
@@ -82,7 +87,15 @@ class Cacador:
         desde = quando - timedelta(days=self.cfg.ref_dias)
         return db.precos_validos(self.con, anuncio_id, desde, ate=quando)
 
+    def _item(self, anuncio):
+        return self.catalogo.get(anuncio.get("catalogo_id")) if anuncio.get("catalogo_id") else None
+
+    def _ref_catalogo(self, anuncio):
+        item = self._item(anuncio)
+        return item.referencia_para(anuncio["ml"]) if item else None
+
     def _oferta(self, anuncio, leitura, quando, avaliacao, bateu_alvo=False):
+        item = self._item(anuncio)
         return promo.Oferta(
             anuncio_id=anuncio["id"],
             perfume=anuncio["perfume_nome"],
@@ -97,17 +110,22 @@ class Cacador:
             alvo=anuncio["alvo"],
             bateu_alvo=bateu_alvo,
             quando=quando,
+            origem=anuncio.get("origem") or "manual",
+            categoria=item.rotulo_categoria if item else None,
+            oficial=bool(anuncio.get("oficial")),
         )
 
     def _avaliar(self, anuncio, leitura, quando):
         avaliacao = promo.avaliar(
             leitura.preco, leitura.preco_de, self._historico(anuncio["id"], quando),
-            self.cfg.niveis, self.cfg.ref_min_leituras,
+            self.cfg.niveis, self.cfg.ref_min_leituras, self._ref_catalogo(anuncio),
         )
         estado = promo.Estado(anuncio["nivel_avisado"], bool(anuncio["alvo_avisado"]))
+        nivel_minimo = self.cfg.nivel_minimo_para(anuncio["perfume_nome"])
+        if (anuncio.get("origem") or "manual") == "descoberta":
+            nivel_minimo = max(nivel_minimo, self.cfg.descoberta.nivel_minimo)
         decisao = promo.decidir(
-            leitura.preco, leitura.esgotado, avaliacao.nivel, anuncio["alvo"], estado,
-            self.cfg.nivel_minimo_para(anuncio["perfume_nome"]),
+            leitura.preco, leitura.esgotado, avaliacao.nivel, anuncio["alvo"], estado, nivel_minimo,
         )
         return avaliacao, decisao
 
@@ -155,19 +173,29 @@ class Cacador:
         if anuncio["bloqueado"]:
             db.limpar_bloqueio(self.con, anuncio["id"])
 
-        leitura = res.leitura
+        return await self.processar_leitura(
+            anuncio, res.leitura, agora, avisar=avisar, rebaixar=lambda: self._baixar(anuncio)
+        )
+
+    async def processar_leitura(self, anuncio, leitura, agora, avisar=True, rebaixar=None, filtro=None):
+        """Registra uma leitura e (se avisar=True) decide e manda o alerta.
+        Serve pros anúncios cadastrados (página baixada) e pros achados na busca automática.
+        rebaixar: função async que lê o preço de novo (sanidade); devolve um coleta.Resultado.
+        filtro: função async (anuncio, oferta) -> motivo pra NÃO avisar agora (ou None).
+        Se o filtro segurar, o estado não muda: o aviso pode sair numa rodada seguinte."""
+        nome = f"{anuncio['perfume_nome']} @ {anuncio['loja']}"
         avaliacao, decisao = self._avaliar(anuncio, leitura, agora)
 
-        # Sanidade: queda grande demais -> baixa de novo antes de avisar
-        if avisar and promo.precisa_rechecar(decisao, avaliacao.pct, self.cfg.sanidade_queda_pct):
+        # Sanidade: queda grande demais -> lê de novo antes de avisar
+        if avisar and rebaixar and promo.precisa_rechecar(decisao, avaliacao.pct, self.cfg.sanidade_queda_pct):
             log.info("⏳ %s: queda de %s, rechecando em %ss", nome, formatar_pct(avaliacao.pct),
                      int(self.cfg.sanidade_rechecar_apos_s))
             await self.dormir(self.cfg.sanidade_rechecar_apos_s)
-            res2 = await self._baixar(anuncio)
-            preco2 = res2.leitura.preco if res2.leitura else None
+            res2 = await rebaixar()
+            preco2 = res2.leitura.preco if res2 and res2.leitura else None
             if not promo.confirmou(leitura.preco, preco2, self.cfg.sanidade_tolerancia_pct):
                 agora2 = self.relogio()
-                if res2.leitura:
+                if res2 and res2.leitura:
                     db.registrar_preco(self.con, anuncio["id"], res2.leitura, agora2)
                 db.marcar_checado(self.con, anuncio["id"], quando=agora2)
                 segundo = formatar_reais(preco2) if preco2 else "sem preço"
@@ -184,7 +212,10 @@ class Cacador:
 
         emoji = "🔵"
         avisou = False
-        if avisar and decisao.avisar:
+        segurado = await filtro(anuncio, oferta) if (avisar and decisao.avisar and filtro) else None
+        if segurado:
+            emoji = f"⏭️ ({segurado})"
+        elif avisar and decisao.avisar:
             quem = promo.mencao(decisao.nivel)
             ok = await self.enviar_alerta(oferta, quem) if self.enviar_alerta else False
             if ok:
@@ -274,12 +305,14 @@ class Cacador:
         )
         avaliacao = promo.avaliar(
             leitura.preco, leitura.preco_de, self._historico(anuncio["id"], quando),
-            self.cfg.niveis, self.cfg.ref_min_leituras,
+            self.cfg.niveis, self.cfg.ref_min_leituras, self._ref_catalogo(anuncio),
         )
         bateu = bool(anuncio["alvo"] and leitura.preco <= anuncio["alvo"])
         return self._oferta(anuncio, leitura, quando, avaliacao, bateu_alvo=bateu)
 
     def _precisa_atualizar(self, anuncio, agora):
+        if (anuncio.get("origem") or "manual") != "manual":
+            return False
         if anuncio["bloqueado_ate"] and db.de_texto(anuncio["bloqueado_ate"]) > agora:
             return False
         ultima = db.de_texto(anuncio["ultima_checagem"])

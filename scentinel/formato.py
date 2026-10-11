@@ -6,7 +6,7 @@ com discord.Embed.from_dict() no bot.
 
 from datetime import UTC, timedelta, timezone
 
-from scentinel.promo import FONTE_LOJA
+from scentinel.promo import FONTE_CATALOGO, FONTE_LOJA
 
 try:
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -71,8 +71,16 @@ def linhas_detalhe(oferta):
         linhas.append(menor)
     if oferta.avaliacao.fonte == FONTE_LOJA:
         linhas.append("📢 desconto anunciado pela loja (sem histórico ainda)")
+    elif oferta.avaliacao.fonte == FONTE_CATALOGO:
+        linhas.append("📊 comparado com o preço normal de mercado")
     if oferta.bateu_alvo and oferta.alvo:
-        linhas.append(f"🎯 Bateu seu alvo de {formatar_reais(oferta.alvo)}")
+        if oferta.origem == "descoberta":
+            linhas.append(f"💸 Abaixo de {formatar_reais(oferta.alvo)}, preço bom pra esse perfume")
+        else:
+            linhas.append(f"🎯 Bateu seu alvo de {formatar_reais(oferta.alvo)}")
+    selos = [s for s in (oferta.categoria, "🛡️ Loja oficial" if oferta.oficial else None) if s]
+    if selos:
+        linhas.append(" · ".join(selos))
     if oferta.esgotado:
         linhas.append("⚪ ESGOTADO na última leitura")
     linhas.append(f"🔗 [link do anúncio]({oferta.url})")
@@ -85,7 +93,7 @@ def titulo_nivel(oferta):
         n = av.nivel
         return f"{n.emoji} NÍVEL {n.nivel} · {n.nome.upper()} — {formatar_pct(av.pct)} OFF"
     if oferta.bateu_alvo:
-        return "🎯 BATEU SEU ALVO"
+        return "💸 PREÇO BOM" if oferta.origem == "descoberta" else "🎯 BATEU SEU ALVO"
     if av.referencia and av.pct > 0:
         return f"−{formatar_pct(av.pct)} vs referência"
     return "Sem promo agora"
@@ -160,3 +168,32 @@ def embed_locate(melhor, em_promo, outros, menor_por_ml, outras_variacoes, nome_
         )
     embed["footer"] = {"text": cortar(rodape, 2000)}
     return embed
+
+
+# ============================================================
+# 🏆 Top do dia
+# ============================================================
+
+def embed_top(ofertas, titulo="🏆 Top do dia", nome_fuso="America/Sao_Paulo"):
+    if not ofertas:
+        return {
+            "title": titulo,
+            "color": COR_NEUTRA,
+            "description": "Nenhuma promo boa nas últimas 24 h. O gato segue de olho 👀",
+        }
+    linhas = []
+    for i, o in enumerate(ofertas, 1):
+        n = o.avaliacao.nivel
+        selo = f"{n.emoji} −{formatar_pct(o.avaliacao.pct)}" if n else ""
+        extra = f" · {o.categoria}" if o.categoria else ""
+        pix = f" · ⚡ Pix {formatar_reais(o.preco_pix)}" if o.preco_pix else ""
+        linhas.append(
+            f"**{i}. [{o.titulo}]({o.url})**\n"
+            f"{selo} · **{formatar_reais(o.preco)}** em {o.loja}{pix}{extra}"
+        )
+    return {
+        "title": titulo,
+        "color": ofertas[0].avaliacao.nivel.cor if ofertas[0].avaliacao.nivel else COR_NEUTRA,
+        "description": cortar("\n\n".join(linhas)),
+        "footer": {"text": f"Preços de {formatar_data(max(o.quando for o in ofertas), nome_fuso)} · podem mudar a qualquer momento"},
+    }

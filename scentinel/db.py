@@ -50,6 +50,15 @@ CREATE TABLE IF NOT EXISTS precos (
 );
 CREATE INDEX IF NOT EXISTS idx_precos_anuncio ON precos(anuncio_id, quando);
 
+CREATE TABLE IF NOT EXISTS buscas (
+    item_id     TEXT NOT NULL,          -- id do item no catalogo.toml
+    fonte       TEXT NOT NULL,          -- id da fonte (ex.: 'vtex:www.epocacosmeticos.com.br')
+    quando      TEXT NOT NULL,
+    erro        TEXT,
+    achados     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (item_id, fonte)
+);
+
 CREATE TABLE IF NOT EXISTS alertas (
     id          INTEGER PRIMARY KEY,
     anuncio_id  INTEGER NOT NULL REFERENCES anuncios(id) ON DELETE CASCADE,
@@ -73,6 +82,28 @@ def de_texto(texto):
     return datetime.fromisoformat(texto) if texto else None
 
 
+# Colunas adicionadas depois da primeira versão: bancos antigos ganham elas no start.
+MIGRACOES = {
+    "anuncios": {
+        "origem": "TEXT NOT NULL DEFAULT 'manual'",  # 'manual' (/add) ou 'descoberta' (busca automática)
+        "catalogo_id": "TEXT",                       # item do catalogo.toml que esse anúncio representa
+        "fonte": "TEXT",                             # de onde veio (ex.: 'vtex:epocacosmeticos.com.br')
+        "titulo": "TEXT",                            # título do produto na loja
+        "oficial": "INTEGER NOT NULL DEFAULT 0",     # loja oficial / vendido pela própria loja
+    },
+}
+
+
+def migrar(con):
+    for tabela, colunas in MIGRACOES.items():
+        existentes = {linha[1] for linha in con.execute(f"PRAGMA table_info({tabela})")}
+        for coluna, tipo in colunas.items():
+            if coluna not in existentes:
+                con.execute(f"ALTER TABLE {tabela} ADD COLUMN {coluna} {tipo}")
+    con.execute("CREATE INDEX IF NOT EXISTS idx_anuncios_catalogo ON anuncios(catalogo_id)")
+    con.commit()
+
+
 def conectar(caminho):
     caminho = Path(caminho)
     if str(caminho) != ":memory:":
@@ -83,6 +114,7 @@ def conectar(caminho):
     con.execute("PRAGMA journal_mode = WAL")
     con.executescript(ESQUEMA)
     con.commit()
+    migrar(con)
     return con
 
 
@@ -181,7 +213,7 @@ def anuncios_para_checar(con, agora, intervalo):
     agora_txt = para_texto(agora)
     sql = (
         _SELECT_ANUNCIO
-        + " WHERE a.ativo = 1"
+        + " WHERE a.ativo = 1 AND a.origem = 'manual'"
         " AND (a.bloqueado_ate IS NULL OR a.bloqueado_ate <= ?)"
         " AND (a.ultima_checagem IS NULL OR a.ultima_checagem <= ?)"
         " ORDER BY a.ultima_checagem IS NOT NULL, a.ultima_checagem"
@@ -293,3 +325,70 @@ def registrar_alerta(con, anuncio_id, tipo, nivel, preco, quando=None):
         (anuncio_id, tipo, nivel, preco, para_texto(quando or agora_utc())),
     )
     con.commit()
+
+
+# ============================================================
+# BUSCA AUTOMÁTICA
+# ============================================================
+
+def ultima_busca(con, item_id, fonte):
+    linha = con.execute("SELECT quando FROM buscas WHERE item_id = ? AND fonte = ?", (item_id, fonte)).fetchone()
+    return de_texto(linha[0]) if linha else None
+
+
+def registrar_busca(con, item_id, fonte, quando, erro=None, achados=0):
+    con.execute(
+        "INSERT INTO buscas (item_id, fonte, quando, erro, achados) VALUES (?, ?, ?, ?, ?)"
+        " ON CONFLICT(item_id, fonte) DO UPDATE SET quando = excluded.quando, erro = excluded.erro,"
+        " achados = excluded.achados",
+        (item_id, fonte, para_texto(quando), erro, achados),
+    )
+    con.commit()
+
+
+def salvar_anuncio_descoberto(con, perfume_id, loja, url, ml, alvo, catalogo_id, fonte, titulo, oficial):
+    """Cria ou atualiza (pela URL) um anúncio achado pela busca automática."""
+    existente = anuncio_por_url(con, url)
+    if existente:
+        con.execute(
+            "UPDATE anuncios SET perfume_id = ?, loja = ?, ml = ?, alvo = ?, catalogo_id = ?, fonte = ?,"
+            " titulo = ?, oficial = ?, ativo = 1 WHERE id = ?",
+            (perfume_id, loja, ml, alvo, catalogo_id, fonte, titulo, int(oficial), existente["id"]),
+        )
+        con.commit()
+        return anuncio_por_id(con, existente["id"])
+    cur = con.execute(
+        "INSERT INTO anuncios (perfume_id, loja, url, ml, alvo, criado_em, origem, catalogo_id, fonte, titulo, oficial)"
+        " VALUES (?, ?, ?, ?, ?, ?, 'descoberta', ?, ?, ?, ?)",
+        (perfume_id, loja, url, ml, alvo, para_texto(agora_utc()), catalogo_id, fonte, titulo, int(oficial)),
+    )
+    con.commit()
+    return anuncio_por_id(con, cur.lastrowid)
+
+
+def ofertas_recentes_do_item(con, catalogo_id, ml, desde, exceto_id=None):
+    """Último preço (sem esgotado) de cada anúncio do mesmo item e tamanho, lido desde `desde`."""
+    sql = """
+    SELECT a.id, a.loja, p.preco, p.quando FROM anuncios a
+    JOIN precos p ON p.id = (SELECT id FROM precos WHERE anuncio_id = a.id ORDER BY quando DESC, id DESC LIMIT 1)
+    WHERE a.catalogo_id = ? AND a.ml = ? AND a.ativo = 1 AND p.esgotado = 0 AND p.quando >= ?
+    """
+    args = [catalogo_id, ml, para_texto(desde)]
+    if exceto_id is not None:
+        sql += " AND a.id != ?"
+        args.append(exceto_id)
+    return [_dict(l) for l in con.execute(sql, args)]
+
+
+def anuncios_descobertos_recentes(con, desde):
+    """Anúncios da busca automática com leitura desde `desde`."""
+    sql = (
+        _SELECT_ANUNCIO
+        + " WHERE a.origem = 'descoberta' AND a.ativo = 1"
+        " AND EXISTS (SELECT 1 FROM precos WHERE anuncio_id = a.id AND quando >= ?)"
+    )
+    return [_dict(l) for l in con.execute(sql, (para_texto(desde),))]
+
+
+def alertas_desde(con, desde):
+    return con.execute("SELECT COUNT(*) FROM alertas WHERE quando >= ?", (para_texto(desde),)).fetchone()[0]

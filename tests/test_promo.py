@@ -166,3 +166,28 @@ def test_mencao_por_nivel():
     assert mencao(N[1]) is None
     assert mencao(N[4]) == "dono"
     assert mencao(N[5]) == "everyone"  # everyone vence o ping do dono
+
+
+# ============================================================
+# referência com o preço de mercado do catálogo
+# ============================================================
+
+def test_referencia_catalogo_sem_historico():
+    from scentinel.promo import FONTE_CATALOGO
+
+    assert calcular_referencia([], None, ref_catalogo=800) == (800, FONTE_CATALOGO)
+    # loja inflou o "de" (999) mas o mercado é 800: fica com 800
+    assert calcular_referencia([], 999, ref_catalogo=800) == (800, FONTE_CATALOGO)
+    # "de" honesto abaixo do mercado: fica com ele
+    assert calcular_referencia([], 700, ref_catalogo=800) == (700, FONTE_LOJA)
+
+
+def test_referencia_catalogo_com_historico_fica_com_a_menor():
+    assert calcular_referencia([900] * 5, None, ref_catalogo=800) == (800, FONTE_MENOR)
+    assert calcular_referencia([700] * 5, 999, ref_catalogo=800) == (700, FONTE_MENOR)
+
+
+def test_loja_que_vive_em_promo_nao_vira_alerta():
+    # "de R$ 999 por R$ 699" todo dia, mercado a R$ 720: só 3% abaixo do mercado, sem nível
+    av = avaliar(699, 999, [], NIVEIS, ref_catalogo=720)
+    assert av.nivel is None

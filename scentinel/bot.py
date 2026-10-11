@@ -1,12 +1,15 @@
 """Bot do Discord: loop de caça + slash commands."""
 
+import datetime as dt
 import logging
 
 import discord
 from discord import app_commands
 from discord.ext import tasks
 
-from scentinel import busca, config, db, formato, promo
+from scentinel import busca, catalogo, config, db, formato, promo
+from scentinel.descoberta import Descoberta
+from scentinel.fontes import montar_fontes
 from scentinel.caca import Cacador
 
 log = logging.getLogger("scentinel")
@@ -25,14 +28,24 @@ def link_convite(application_id):
 def montar_mencao(mencao, dono_id, pode_everyone=True):
     """Texto e menções permitidas do alerta.
     mencao: None, promo.MENCAO_DONO ou promo.MENCAO_EVERYONE.
+    O dono vai junto no @everyone: quem silencia @everyone no servidor ainda é avisado.
     Sem a permissão de @everyone, marca pelo menos o dono."""
     if mencao == promo.MENCAO_EVERYONE:
         if pode_everyone:
-            return "@everyone", discord.AllowedMentions(everyone=True, users=True, roles=False)
+            return f"@everyone <@{dono_id}>", discord.AllowedMentions(everyone=True, users=True, roles=False)
         return f"@everyone <@{dono_id}>", discord.AllowedMentions(everyone=False, users=True, roles=False)
     if mencao == promo.MENCAO_DONO:
         return f"<@{dono_id}>", discord.AllowedMentions(everyone=False, users=True, roles=False)
     return None, discord.AllowedMentions.none()
+
+
+def horario_top(texto, fuso_nome):
+    """'19:00' -> time(19, 0, tz=São Paulo). Vazio ou inválido -> None (top desligado)."""
+    try:
+        hora, minuto = (int(x) for x in str(texto).strip().split(":"))
+        return dt.time(hora, minuto, tzinfo=formato.fuso(fuso_nome))
+    except (ValueError, TypeError):
+        return None
 
 
 class BotScentinel(discord.Client):
@@ -52,6 +65,16 @@ class BotScentinel(discord.Client):
         self.tree = app_commands.CommandTree(self)
         self.cacador = Cacador(con, cfg, enviar_alerta=self.enviar_alerta, enviar_aviso=self.enviar_aviso)
         self.loop_caca.change_interval(minutes=cfg.tick_minutos)
+        self.descoberta = None
+        if cfg.descoberta.ativo:
+            itens = catalogo.carregar_catalogo()
+            fontes = montar_fontes(cfg.descoberta.fontes)
+            if itens and fontes:
+                self.descoberta = Descoberta(self.cacador, itens, fontes, enviar_aviso=self.enviar_aviso)
+                self.loop_descoberta.change_interval(minutes=cfg.tick_minutos)
+                horario = horario_top(cfg.descoberta.top_diario, cfg.fuso)
+                if horario:
+                    self.loop_top.change_interval(time=horario)
 
     # ------------------------------------------------------------
     # ciclo de vida
@@ -73,6 +96,12 @@ class BotScentinel(discord.Client):
             )
             raise SystemExit(1)
         self.loop_caca.start()
+        if self.descoberta:
+            d = self.descoberta
+            log.info("🔎 Busca automática ligada: %d perfumes em %d loja(s)", len(d.itens), len(d.fontes))
+            self.loop_descoberta.start()
+            if horario_top(self.cfg.descoberta.top_diario, self.cfg.fuso):
+                self.loop_top.start()
 
     async def on_ready(self):
         log.info("✅ Bot online como %s", self.user)
@@ -134,6 +163,36 @@ class BotScentinel(discord.Client):
     @loop_caca.before_loop
     async def antes_do_loop(self):
         await self.wait_until_ready()
+
+    @tasks.loop(minutes=10)
+    async def loop_descoberta(self):
+        try:
+            await self.descoberta.rodada()
+        except Exception:
+            log.exception("erro na busca automática")
+
+    @loop_descoberta.before_loop
+    async def antes_da_descoberta(self):
+        await self.wait_until_ready()
+
+    @tasks.loop(time=dt.time(19, 0))
+    async def loop_top(self):
+        try:
+            await self.postar_top()
+        except Exception:
+            log.exception("erro no top do dia")
+
+    @loop_top.before_loop
+    async def antes_do_top(self):
+        await self.wait_until_ready()
+
+    async def postar_top(self):
+        ofertas = self.descoberta.top() if self.descoberta else []
+        if not ofertas:
+            return False  # dia fraco: não posta "nada hoje" no canal
+        canal = await self.canal()
+        await canal.send(embed=discord.Embed.from_dict(formato.embed_top(ofertas, nome_fuso=self.cfg.fuso)))
+        return True
 
     def eh_dono(self, interaction):
         return interaction.user.id == self.segredos.dono_id
@@ -271,9 +330,13 @@ def registrar_comandos(tree):
     @tree.command(name="lista", description="Lista os perfumes e anúncios vigiados")
     async def lista(interaction: discord.Interaction):
         bot = interaction.client
-        anuncios = db.listar_anuncios(bot.con)
+        todos = db.listar_anuncios(bot.con)
+        anuncios = [a for a in todos if (a.get("origem") or "manual") == "manual"]
+        automaticos = len(todos) - len(anuncios)
+        rodape_auto = (f"\n\n🔎 + {automaticos} anúncio(s) achados pela busca automática (veja com `/locate` e `/top`)"
+                       if automaticos else "")
         if not anuncios:
-            await interaction.response.send_message("Nada cadastrado ainda. Use `/add` 🙂")
+            await interaction.response.send_message("Nenhum anúncio cadastrado à mão. Use `/add` 🙂" + rodape_auto)
             return
         linhas = []
         atual = None
@@ -296,7 +359,7 @@ def registrar_comandos(tree):
         embed = {
             "title": f"🧴 Vigiando {len(anuncios)} anúncio(s)",
             "color": formato.COR_NEUTRA,
-            "description": formato.cortar("\n".join(linhas).strip()),
+            "description": formato.cortar("\n".join(linhas).strip() + rodape_auto),
         }
         await interaction.response.send_message(embed=discord.Embed.from_dict(embed))
 
@@ -332,6 +395,16 @@ def registrar_comandos(tree):
             "color": formato.COR_NEUTRA,
             "description": formato.cortar("\n".join(linhas) or "Sem anúncios."),
         }
+        await interaction.response.send_message(embed=discord.Embed.from_dict(embed))
+
+    @tree.command(name="top", description="As melhores promos das últimas 24 h, uma por perfume")
+    async def top(interaction: discord.Interaction):
+        bot = interaction.client
+        if not bot.descoberta:
+            await interaction.response.send_message("A busca automática está desligada no config.toml.")
+            return
+        ofertas = bot.descoberta.top()
+        embed = formato.embed_top(ofertas, titulo="🏆 Melhores promos agora", nome_fuso=bot.cfg.fuso)
         await interaction.response.send_message(embed=discord.Embed.from_dict(embed))
 
     @tree.command(name="checar", description="Força uma rodada de checagem agora (só o dono)")

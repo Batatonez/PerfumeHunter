@@ -23,6 +23,19 @@ log = logging.getLogger("scentinel")
 
 
 @dataclass
+class ConfigDescoberta:
+    ativo: bool = True
+    intervalo_horas: float = 6  # cada perfume é buscado em cada loja no máximo a cada X horas
+    nivel_minimo: int = 2  # só posta a partir desse nível (2 = 20% abaixo do mercado)
+    max_por_busca: int = 6  # quantos produtos de uma busca entram (os mais relevantes)
+    max_alertas_por_hora: int = 10
+    so_menor_preco: bool = True  # mesmo perfume e tamanho mais barato em outra loja -> não posta
+    top_diario: str = "19:00"  # horário do 🏆 Top do dia ("" desliga)
+    top_n: int = 5
+    fontes: list = field(default_factory=list)
+
+
+@dataclass
 class Config:
     intervalo_horas: float = 3
     delay_min_s: float = 5
@@ -41,6 +54,7 @@ class Config:
     backoff_horas: float = 6
     backoff_max_horas: float = 48
     niveis: list = field(default_factory=list)
+    descoberta: ConfigDescoberta = field(default_factory=ConfigDescoberta)
 
     def nivel_minimo_para(self, nome_perfume):
         from scentinel.busca import normalizar
@@ -97,6 +111,19 @@ def carregar_config(caminho=ARQ_CONFIG):
             )
             for n in bruto.get("niveis", [])
         ],
+    )
+
+    d = bruto.get("descoberta", {})
+    cfg.descoberta = ConfigDescoberta(
+        ativo=bool(d.get("ativo", True)),
+        intervalo_horas=max(float(d.get("intervalo_horas", 6)), INTERVALO_MIN_HORAS),
+        nivel_minimo=int(d.get("nivel_minimo", 2)),
+        max_por_busca=int(d.get("max_por_busca", 6)),
+        max_alertas_por_hora=int(d.get("max_alertas_por_hora", 10)),
+        so_menor_preco=bool(d.get("so_menor_preco", True)),
+        top_diario=str(d.get("top_diario", "19:00")),
+        top_n=int(d.get("top_n", 5)),
+        fontes=list(d.get("fontes", [])),
     )
 
     if cfg.intervalo_horas < INTERVALO_MIN_HORAS:

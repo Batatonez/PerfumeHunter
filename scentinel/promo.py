@@ -25,23 +25,30 @@ class Nivel:
 
 FONTE_HISTORICO = "historico"  # mediana do próprio histórico
 FONTE_LOJA = "loja"  # "preço de" riscado da página (sem histórico ainda)
-FONTE_MENOR = "menor"  # tinha os dois, ficou com o menor
+FONTE_MENOR = "menor"  # tinha mais de uma, ficou com a menor
+FONTE_CATALOGO = "catalogo"  # preço normal de mercado (catalogo.toml), sem histórico ainda
 
 
-def calcular_referencia(historico, preco_de, min_leituras=5):
+def calcular_referencia(historico, preco_de, min_leituras=5, ref_catalogo=None):
     """historico: preços (sem esgotados) dos últimos N dias, ANTES da leitura atual.
+    ref_catalogo: preço normal de mercado pro tamanho (só anúncios da busca automática).
+    Sempre fica com a MENOR referência disponível (proteção contra "Black Fraude").
     Devolve (referencia, fonte) ou (None, None)."""
     mediana = statistics.median(historico) if len(historico) >= min_leituras else None
     preco_de = preco_de if preco_de and preco_de > 0 else None
+    ref_catalogo = ref_catalogo if ref_catalogo and ref_catalogo > 0 else None
 
-    if mediana and preco_de:
-        if preco_de < mediana:
-            return preco_de, FONTE_MENOR
-        return mediana, FONTE_MENOR
     if mediana:
-        return mediana, FONTE_HISTORICO
+        candidatas = [mediana] + [r for r in (preco_de, ref_catalogo) if r]
+        if len(candidatas) == 1:
+            return mediana, FONTE_HISTORICO
+        return min(candidatas), FONTE_MENOR
+    if preco_de and ref_catalogo:
+        return (preco_de, FONTE_LOJA) if preco_de < ref_catalogo else (ref_catalogo, FONTE_CATALOGO)
     if preco_de:
         return preco_de, FONTE_LOJA
+    if ref_catalogo:
+        return ref_catalogo, FONTE_CATALOGO
     return None, None
 
 
@@ -69,8 +76,8 @@ class Avaliacao:
     nivel: Nivel | None
 
 
-def avaliar(preco, preco_de, historico, niveis, min_leituras=5):
-    referencia, fonte = calcular_referencia(historico, preco_de, min_leituras)
+def avaliar(preco, preco_de, historico, niveis, min_leituras=5, ref_catalogo=None):
+    referencia, fonte = calcular_referencia(historico, preco_de, min_leituras, ref_catalogo)
     pct = desconto_pct(preco, referencia)
     return Avaliacao(preco, referencia, fonte, pct, nivel_do_desconto(pct, niveis))
 
@@ -194,6 +201,9 @@ class Oferta:
     alvo: float | None = None
     bateu_alvo: bool = False
     quando: object = None  # datetime UTC da leitura
+    origem: str = "manual"  # 'manual' (/add) ou 'descoberta' (busca automática)
+    categoria: str | None = None  # rótulo do catálogo, ex.: '🕌 Árabe'
+    oficial: bool = False  # loja oficial / vendido pela própria loja
 
     @property
     def por_ml(self):

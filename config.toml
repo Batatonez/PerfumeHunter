@@ -94,3 +94,83 @@ cor = "#00C8FF"
 ping = true
 everyone = true
 rechecar = true
+
+# ------------------------------------------------------------
+# Busca automática (canal de promos): o bot procura sozinho os perfumes do
+# catalogo.toml nas lojas abaixo e posta as melhores ofertas.
+# ------------------------------------------------------------
+[descoberta]
+ativo = true
+# Cada perfume é buscado em cada loja no máximo a cada X horas (mínimo 3).
+intervalo_horas = 6
+# Só posta a partir desse nível (2 = 20% abaixo do preço de referência).
+nivel_minimo = 2
+# Quantos produtos de cada busca entram na análise.
+max_por_busca = 6
+# Trava anti-enxurrada.
+max_alertas_por_hora = 10
+# Mesmo perfume e tamanho mais barato em outra loja -> posta só o mais barato.
+so_menor_preco = true
+# 🏆 Top do dia (horário de Brasília; "" desliga) e quantos itens.
+top_diario = "19:00"
+top_n = 5
+
+# Lojas onde o bot procura. Rode `.venv/bin/python -m scentinel lojas` no notebook pra ver quais
+# funcionam de verdade, e troque `ativo = false` nas que não funcionarem.
+# categorias: o que procurar nessa loja (designer, nicho, arabe, nacional; vazio = tudo)
+# marcas:     só esses perfumes (vazio = todos)
+
+[[descoberta.fontes]]
+tipo = "mercadolivre"
+# Perfume falsificado é comum no ML: só anúncios de loja oficial.
+so_loja_oficial = true
+
+[[descoberta.fontes]]
+tipo = "vtex"
+dominio = "www.sephora.com.br"
+nome = "Sephora"
+categorias = ["designer", "nicho"]
+
+[[descoberta.fontes]]
+tipo = "vtex"
+dominio = "www.epocacosmeticos.com.br"
+nome = "Época Cosméticos"
+categorias = ["designer", "nicho", "arabe"]
+
+[[descoberta.fontes]]
+tipo = "vtex"
+dominio = "www.belezanaweb.com.br"
+nome = "Beleza na Web"
+categorias = ["designer", "nicho", "arabe"]
+
+[[descoberta.fontes]]
+tipo = "vtex"
+dominio = "www.thebeautybox.com.br"
+nome = "The Beauty Box"
+categorias = ["designer"]
+
+[[descoberta.fontes]]
+tipo = "vtex"
+dominio = "www.boticario.com.br"
+nome = "O Boticário"
+marca_padrao = "O Boticário"
+marcas = ["O Boticário"]
+
+[[descoberta.fontes]]
+tipo = "vtex"
+dominio = "www.natura.com.br"
+nome = "Natura"
+marca_padrao = "Natura"
+marcas = ["Natura"]
+
+[[descoberta.fontes]]
+tipo = "vtex"
+dominio = "www.drogariasaopaulo.com.br"
+nome = "Drogaria São Paulo"
+categorias = ["designer"]
+
+[[descoberta.fontes]]
+tipo = "vtex"
+dominio = "www.drogariaspacheco.com.br"
+nome = "Drogarias Pacheco"
+categorias = ["designer"]
