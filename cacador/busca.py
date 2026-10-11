@@ -64,13 +64,33 @@ def textos_do_perfume(perfume):
     return textos
 
 
-def pontuar(consulta_norm, perfume):
+_CODIGOS = {codigo for _, codigo, _ in _CONCENTRACOES}
+
+
+def _palavras(texto_norm):
+    """Palavras do nome sem a concentração (ela é tratada à parte, como filtro)."""
+    return [p for p in texto_norm.split() if p not in _CODIGOS]
+
+
+def _nota_palavra(palavra, candidatas):
+    melhor = 0.0
+    for c in candidatas:
+        if len(palavra) >= 3 and c.startswith(palavra):
+            return 100.0  # prefixo: 'sauv' -> 'sauvage' (ajuda no autocomplete)
+        melhor = max(melhor, fuzz.ratio(palavra, c))
+    return melhor
+
+
+def pontuar(palavras_consulta, perfume):
+    """Média de quão bem cada palavra da busca aparece no perfume (0-100).
+    Todas as palavras da busca precisam bater; palavras a mais no perfume não atrapalham."""
     melhor = 0.0
     for texto in textos_do_perfume(perfume):
-        alvo = normalizar(texto)
-        if not alvo:
+        candidatas = _palavras(normalizar(texto))
+        if not candidatas:
             continue
-        melhor = max(melhor, fuzz.WRatio(consulta_norm, alvo))
+        notas = [_nota_palavra(p, candidatas) for p in palavras_consulta]
+        melhor = max(melhor, sum(notas) / len(notas))
     return melhor
 
 
@@ -82,11 +102,13 @@ def buscar(consulta, perfumes, limite=LIMITE_MATCH, janela=JANELA_MATCH):
         return []
 
     concentracao = detectar_concentracao(consulta)
+    palavras = _palavras(consulta_norm)
     resultados = []
     for perfume in perfumes:
         if concentracao and perfume.get("concentracao") not in (None, "", concentracao):
             continue
-        score = pontuar(consulta_norm, perfume)
+        # busca só com a concentração ("edp") -> todos dessa concentração
+        score = pontuar(palavras, perfume) if palavras else 100.0
         if score >= limite:
             resultados.append((perfume, score))
 

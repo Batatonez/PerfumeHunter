@@ -1,0 +1,22 @@
+# Unit do systemd do Caçador de Perfumes.
+# Não edite à mão: o ./instalar.sh gera dados/cacador.service com o seu usuário e pasta.
+
+[Unit]
+Description=Caçador de Perfumes (bot do Discord)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USUARIO__
+WorkingDirectory=__PASTA__
+EnvironmentFile=__PASTA__/.env
+Environment=PYTHONUNBUFFERED=1
+ExecStart=__PASTA__/.venv/bin/python -m cacador
+Restart=on-failure
+RestartSec=30
+# trava de segurança pra RAM (a máquina tem 3 GB)
+MemoryMax=300M
+
+[Install]
+WantedBy=multi-user.target

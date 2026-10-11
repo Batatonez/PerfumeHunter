@@ -1,0 +1,93 @@
+# Caçador de Perfumes: ajustes
+# Depois de mudar algo aqui: sudo systemctl restart cacador
+
+[geral]
+# Intervalo mínimo entre checagens do MESMO anúncio, em horas.
+# Educação com as lojas: o bot não aceita menos que 3.
+intervalo_horas = 3
+
+# Espera aleatória entre uma requisição e outra (segundos). Mínimo 5.
+delay_min_s = 5
+delay_max_s = 15
+
+# De quanto em quanto tempo o bot olha se tem anúncio vencido (minutos).
+tick_minutos = 10
+
+# Nível mínimo pra mandar aviso (1 = Cheirinho).
+nivel_minimo_aviso = 1
+
+# No /locate, se a última checagem de um anúncio tiver mais que isso (horas),
+# ele checa de novo na hora. Nunca fica abaixo de intervalo_horas.
+locate_rechecar_apos_horas = 6
+
+# O /checar ignora o intervalo de 3 h, mas pula quem foi checado há menos disso (minutos).
+checar_forcado_min_minutos = 30
+
+fuso = "America/Sao_Paulo"
+
+[referencia]
+# Preço de referência = mediana dos últimos `dias`, se tiver pelo menos `min_leituras`.
+dias = 30
+min_leituras = 5
+
+[sanidade]
+# Queda maior que isso (%) -> baixa a página de novo antes de avisar.
+queda_pct = 60
+rechecar_apos_s = 120
+# A 2ª leitura confirma se não estiver mais que isso (%) acima da 1ª.
+tolerancia_pct = 2
+
+[bloqueio]
+# Se a loja bloquear (403/429/captcha): espera e dobra a cada novo bloqueio.
+backoff_horas = 6
+backoff_max_horas = 48
+
+# Sobrescreve o nivel_minimo_aviso pra um perfume específico (nome como no /add).
+[nivel_minimo_por_perfume]
+# "Sauvage EDP" = 2
+
+# ------------------------------------------------------------
+# Níveis de promo (desconto vs preço de referência)
+# ping = marca o dono · rechecar = baixa de novo antes de avisar
+# ------------------------------------------------------------
+
+[[niveis]]
+nivel = 1
+nome = "Cheirinho"
+emoji = "🟢"
+min_pct = 10
+cor = "#2ECC71"
+ping = false
+
+[[niveis]]
+nivel = 2
+nome = "Elogio"
+emoji = "🟡"
+min_pct = 20
+cor = "#F1C40F"
+ping = false
+
+[[niveis]]
+nivel = 3
+nome = "Rastro"
+emoji = "🟠"
+min_pct = 30
+cor = "#E67E22"
+ping = false
+
+[[niveis]]
+nivel = 4
+nome = "Fera"
+emoji = "🔴"
+min_pct = 40
+cor = "#E74C3C"
+ping = true
+
+[[niveis]]
+nivel = 5
+nome = "Bug de preço"
+emoji = "💎"
+min_pct = 50
+cor = "#00D2FF"
+ping = true
+rechecar = true
