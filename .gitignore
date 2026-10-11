@@ -1,0 +1,15 @@
+# segredos
+.env
+
+# dados do bot
+dados/
+*.db
+*.db-*
+*.tmp
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
