@@ -62,6 +62,7 @@ def test_config_padrao_carrega():
     assert [n.nome for n in cfg.niveis] == ["Cheirinho", "Elogio", "Rastro", "Fera", "Bug de preço"]
     assert cfg.intervalo_horas >= 3
     assert cfg.niveis[3].ping and cfg.niveis[4].rechecar
+    assert cfg.niveis[4].everyone and not any(n.everyone for n in cfg.niveis[:4])
 
 
 def test_config_nao_deixa_baixar_de_3h(tmp_path):
@@ -104,4 +105,21 @@ def test_bot_fora_do_servidor_mostra_link_de_convite(caplog):
     with pytest.raises(SystemExit):
         asyncio.run(bot.setup_hook())
     assert link_convite(999) in caplog.text
-    assert "client_id=999&scope=bot+applications.commands&permissions=19456" in link_convite(999)
+    assert "client_id=999&scope=bot+applications.commands&permissions=150528" in link_convite(999)
+
+
+def test_montar_mencao():
+    from scentinel.bot import montar_mencao
+
+    texto, permitidas = montar_mencao("everyone", 42, pode_everyone=True)
+    assert texto == "@everyone" and permitidas.everyone
+
+    # sem permissão: não finge que marcou todo mundo, mas marca o dono
+    texto, permitidas = montar_mencao("everyone", 42, pode_everyone=False)
+    assert "<@42>" in texto and not permitidas.everyone and permitidas.users
+
+    texto, permitidas = montar_mencao("dono", 42)
+    assert texto == "<@42>" and not permitidas.everyone
+
+    texto, permitidas = montar_mencao(None, 42)
+    assert texto is None and not permitidas.everyone and not permitidas.users

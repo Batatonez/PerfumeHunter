@@ -14,8 +14,9 @@ class Nivel:
     emoji: str
     min_pct: float
     cor: int
-    ping: bool = False
+    ping: bool = False  # marca o dono
     rechecar: bool = False
+    everyone: bool = False  # marca @everyone (promo muito boa)
 
 
 # ============================================================
@@ -127,6 +128,21 @@ def decidir(preco, esgotado, nivel, alvo, estado, nivel_minimo=1):
         novo.alvo_avisado = False
 
     return decisao
+
+
+MENCAO_DONO = "dono"
+MENCAO_EVERYONE = "everyone"
+
+
+def mencao(nivel):
+    """Quem o alerta marca: None, MENCAO_DONO ou MENCAO_EVERYONE (este vence)."""
+    if not nivel:
+        return None
+    if nivel.everyone:
+        return MENCAO_EVERYONE
+    if nivel.ping:
+        return MENCAO_DONO
+    return None
 
 
 # ============================================================

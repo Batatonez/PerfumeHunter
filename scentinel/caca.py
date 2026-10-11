@@ -1,7 +1,7 @@
 """O caçador: checa anúncios, decide avisos, monta o /locate e o /add.
 
 Não conhece o Discord. O bot passa duas funções:
-  enviar_alerta(oferta, ping) -> bool   (manda o embed no canal)
+  enviar_alerta(oferta, mencao) -> bool (manda o embed no canal; mencao: None/'dono'/'everyone')
   enviar_aviso(texto) -> None           (mensagem simples, ex.: bloqueio)
 Isso deixa testar tudo com funções falsas.
 """
@@ -185,8 +185,8 @@ class Cacador:
         emoji = "🔵"
         avisou = False
         if avisar and decisao.avisar:
-            ping = bool(decisao.nivel and decisao.nivel.ping)
-            ok = await self.enviar_alerta(oferta, ping) if self.enviar_alerta else False
+            quem = promo.mencao(decisao.nivel)
+            ok = await self.enviar_alerta(oferta, quem) if self.enviar_alerta else False
             if ok:
                 novo = decisao.novo_estado
                 db.salvar_estado(self.con, anuncio["id"], novo.nivel_avisado, novo.alvo_avisado)

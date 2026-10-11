@@ -48,7 +48,8 @@ backoff_max_horas = 48
 
 # ------------------------------------------------------------
 # Níveis de promo (desconto vs preço de referência)
-# ping = marca o dono · rechecar = baixa de novo antes de avisar
+# ping = marca o dono · everyone = marca @everyone · rechecar = baixa de novo antes de avisar
+# (pro @everyone funcionar, o bot precisa da permissão "Mencionar @everyone": use o link de convite do README)
 # cores: degradê do azul da foto do bot (claro -> forte, 💎 elétrico)
 # ------------------------------------------------------------
 
@@ -91,4 +92,5 @@ emoji = "💎"
 min_pct = 50
 cor = "#00C8FF"
 ping = true
+everyone = true
 rechecar = true

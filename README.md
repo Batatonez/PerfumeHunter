@@ -125,10 +125,10 @@ O `instalar.sh` faz quatro coisas:
 4. Monte o link de convite trocando `CLIENT_ID` pelo Client ID que você copiou:
 
    ```
-   https://discord.com/oauth2/authorize?client_id=CLIENT_ID&scope=bot+applications.commands&permissions=19456
+   https://discord.com/oauth2/authorize?client_id=CLIENT_ID&scope=bot+applications.commands&permissions=150528
    ```
 
-   O `19456` dá ao bot só três permissões: ver canais, mandar mensagem e mandar embed (o card bonito). Pra marcar você, ele não precisa de nenhuma permissão extra.
+   O `150528` dá ao bot só quatro permissões: ver canais, mandar mensagem, mandar embed (o card bonito) e mencionar @everyone (usada só no 💎 Bug de preço). Se o bot já estiver no servidor, abrir o link de novo e autorizar atualiza as permissões.
 5. Abra o link, escolha o seu servidor e autorize.
 6. (Opcional) Em **General Information**, coloque a descrição e as tags:
 
@@ -291,7 +291,7 @@ O desconto é calculado contra um **preço de referência honesto**:
 | 2 | 🟡 Elogio | 20–29% | – |
 | 3 | 🟠 Rastro | 30–39% | – |
 | 4 | 🔴 Fera | 40–49% | @você |
-| 5 | 💎 Bug de preço | 50%+ | @você + rechecagem |
+| 5 | 💎 Bug de preço | 50%+ | **@everyone** + rechecagem |
 
 Anti-spam:
 - Só avisa quando o anúncio **sobe de nível**. Mesmo nível ou nível menor não repete.

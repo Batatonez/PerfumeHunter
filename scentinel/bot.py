@@ -6,13 +6,13 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 
-from scentinel import busca, config, db, formato
+from scentinel import busca, config, db, formato, promo
 from scentinel.caca import Cacador
 
 log = logging.getLogger("scentinel")
 
 
-PERMISSOES = 19456  # ver canais + mandar mensagem + mandar embed
+PERMISSOES = 1024 | 2048 | 16384 | 131072  # ver canais + mandar mensagem + embed + mencionar @everyone
 
 
 def link_convite(application_id):
@@ -20,6 +20,19 @@ def link_convite(application_id):
         "https://discord.com/oauth2/authorize"
         f"?client_id={application_id}&scope=bot+applications.commands&permissions={PERMISSOES}"
     )
+
+
+def montar_mencao(mencao, dono_id, pode_everyone=True):
+    """Texto e menções permitidas do alerta.
+    mencao: None, promo.MENCAO_DONO ou promo.MENCAO_EVERYONE.
+    Sem a permissão de @everyone, marca pelo menos o dono."""
+    if mencao == promo.MENCAO_EVERYONE:
+        if pode_everyone:
+            return "@everyone", discord.AllowedMentions(everyone=True, users=True, roles=False)
+        return f"@everyone <@{dono_id}>", discord.AllowedMentions(everyone=False, users=True, roles=False)
+    if mencao == promo.MENCAO_DONO:
+        return f"<@{dono_id}>", discord.AllowedMentions(everyone=False, users=True, roles=False)
+    return None, discord.AllowedMentions.none()
 
 
 class BotScentinel(discord.Client):
@@ -74,12 +87,27 @@ class BotScentinel(discord.Client):
             canal = await self.fetch_channel(self.segredos.canal_alertas_id)
         return canal
 
-    async def enviar_alerta(self, oferta, ping=False):
+    def pode_marcar_everyone(self, canal):
+        try:
+            eu = canal.guild.me
+            return bool(eu and canal.permissions_for(eu).mention_everyone)
+        except AttributeError:
+            return False
+
+    async def enviar_alerta(self, oferta, mencao=None):
         try:
             canal = await self.canal()
-            conteudo = f"<@{self.segredos.dono_id}>" if ping else None
+            pode = True
+            if mencao == promo.MENCAO_EVERYONE:
+                pode = self.pode_marcar_everyone(canal)
+                if not pode:
+                    log.warning(
+                        "⚠️ Sem permissão de marcar @everyone no canal de alertas: marquei só o dono. "
+                        "Reconvide o bot com: %s", link_convite(self.application_id),
+                    )
+            conteudo, permitidas = montar_mencao(mencao, self.segredos.dono_id, pode)
             embed = discord.Embed.from_dict(formato.embed_alerta(oferta, self.cfg.fuso))
-            await canal.send(content=conteudo, embed=embed)
+            await canal.send(content=conteudo, embed=embed, allowed_mentions=permitidas)
             return True
         except discord.DiscordException:
             log.exception("falha ao mandar alerta")
@@ -325,7 +353,7 @@ def registrar_comandos(tree):
             ml=100, preco=659.90, avaliacao=Avaliacao(659.90, 999.00, "historico", 33.9, nivel),
             preco_pix=626.90, menor_ja_visto=659.90, recorde=True, quando=db.agora_utc(),
         )
-        ok = await bot.enviar_alerta(oferta, ping=nivel.ping)
+        ok = await bot.enviar_alerta(oferta, mencao=None)
         await interaction.response.send_message(
             "✅ Alerta de teste enviado no canal!" if ok else "❌ Não consegui mandar. Confere o CANAL_ALERTAS_ID.",
             ephemeral=True,

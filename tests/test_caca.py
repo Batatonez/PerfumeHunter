@@ -54,8 +54,8 @@ def ambiente():
     relogio = Relogio()
     alertas, avisos, dormidas = [], [], []
 
-    async def enviar_alerta(oferta, ping):
-        alertas.append((oferta, ping))
+    async def enviar_alerta(oferta, mencao):
+        alertas.append((oferta, mencao))
         return True
 
     async def enviar_aviso(texto):
@@ -147,20 +147,20 @@ def test_fluxo_completo_de_niveis(ambiente):
     ambiente.rede.programar(url, 850.0)
     rodada_depois(ambiente)
     assert len(ambiente.alertas) == 1
-    oferta, ping = ambiente.alertas[-1]
-    assert oferta.avaliacao.nivel.nivel == 1 and not ping
+    oferta, mencao = ambiente.alertas[-1]
+    assert oferta.avaliacao.nivel.nivel == 1 and mencao is None
 
     # continua 15% -> não repete
     ambiente.rede.programar(url, 850.0)
     rodada_depois(ambiente)
     assert len(ambiente.alertas) == 1
 
-    # 42% -> nível 4, com ping
+    # 42% -> nível 4, marca só o dono
     ambiente.rede.programar(url, 580.0)
     rodada_depois(ambiente)
     assert len(ambiente.alertas) == 2
-    oferta, ping = ambiente.alertas[-1]
-    assert oferta.avaliacao.nivel.nivel == 4 and ping
+    oferta, mencao = ambiente.alertas[-1]
+    assert oferta.avaliacao.nivel.nivel == 4 and mencao == "dono"
     assert oferta.recorde
 
     # volta pro preço cheio -> reset
@@ -212,7 +212,7 @@ def test_falha_no_discord_nao_marca_como_avisado(ambiente):
     url = "https://loja.com/a"
     construir_historico(ambiente, url)
 
-    async def falha(oferta, ping):
+    async def falha(oferta, mencao):
         return False
 
     ambiente.cacador.enviar_alerta = falha
@@ -243,8 +243,8 @@ def test_queda_grande_confirmada_avisa(ambiente):
     ambiente.rede.programar(url, 300.0, 300.0)
     rodada_depois(ambiente)
     assert 120 in ambiente.dormidas
-    oferta, ping = ambiente.alertas[-1]
-    assert oferta.avaliacao.nivel.nivel == 5 and ping
+    oferta, mencao = ambiente.alertas[-1]
+    assert oferta.avaliacao.nivel.nivel == 5 and mencao == "everyone"
 
 
 def test_queda_grande_nao_confirmada_nao_avisa(ambiente):

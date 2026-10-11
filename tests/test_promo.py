@@ -2,7 +2,7 @@ import pytest
 
 from scentinel.promo import (
     FONTE_HISTORICO, FONTE_LOJA, FONTE_MENOR, Decisao, Estado, Nivel,
-    avaliar, calcular_referencia, confirmou, decidir, desconto_pct,
+    avaliar, calcular_referencia, confirmou, decidir, desconto_pct, mencao,
     nivel_do_desconto, precisa_rechecar,
 )
 
@@ -11,7 +11,7 @@ NIVEIS = [
     Nivel(2, "Elogio", "🟡", 20, 0x2),
     Nivel(3, "Rastro", "🟠", 30, 0x3),
     Nivel(4, "Fera", "🔴", 40, 0x4, ping=True),
-    Nivel(5, "Bug de preço", "💎", 50, 0x5, ping=True, rechecar=True),
+    Nivel(5, "Bug de preço", "💎", 50, 0x5, ping=True, rechecar=True, everyone=True),
 ]
 N = {n.nivel: n for n in NIVEIS}
 
@@ -155,3 +155,14 @@ def test_confirmou():
     assert confirmou(100, 90)
     assert not confirmou(100, 300)
     assert not confirmou(100, None)
+
+
+# ============================================================
+# quem marcar
+# ============================================================
+
+def test_mencao_por_nivel():
+    assert mencao(None) is None
+    assert mencao(N[1]) is None
+    assert mencao(N[4]) == "dono"
+    assert mencao(N[5]) == "everyone"  # everyone vence o ping do dono

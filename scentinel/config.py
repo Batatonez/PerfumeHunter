@@ -93,6 +93,7 @@ def carregar_config(caminho=ARQ_CONFIG):
                 cor=_cor(n.get("cor", "#95A5A6")),
                 ping=bool(n.get("ping", False)),
                 rechecar=bool(n.get("rechecar", False)),
+                everyone=bool(n.get("everyone", False)),
             )
             for n in bruto.get("niveis", [])
         ],
