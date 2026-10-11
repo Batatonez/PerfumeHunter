@@ -174,3 +174,60 @@ def test_montar_fontes_com_filtros():
     assert fonte_busca_item(fontes[0], sauvage) and not fonte_busca_item(fontes[0], malbec)
     assert fonte_busca_item(fontes[1], malbec) and not fonte_busca_item(fontes[1], sauvage)
     assert isinstance(ResultadoBusca(), ResultadoBusca)
+
+
+
+# ============================================================
+# varredura e login do ML
+# ============================================================
+
+def test_vtex_varredura_pede_maior_desconto(monkeypatch):
+    pedidos = []
+
+    def falso(url, params=None, headers=None, timeout=None):
+        pedidos.append((url, params))
+        return [PRODUTO_VTEX], None, False
+
+    monkeypatch.setattr(vtex, "baixar_json", falso)
+    fonte = vtex.FonteVTEX("www.loja.com.br", paginas=2)
+    tarefas = fonte.tarefas_varredura()
+    assert len(tarefas) == 2
+    res = tarefas[1][1]()
+    assert len(res.achados) == 3
+    url, params = pedidos[-1]
+    assert params["O"] == "OrderByBestDiscountDESC" and params["_from"] == 50 and params["ft"] == "perfume"
+    assert vtex.FonteVTEX("www.x.com.br", varrer=False).tarefas_varredura() == []
+
+
+def test_ml_login_e_renovacao(monkeypatch, tmp_path):
+    import time as _t
+
+    arq = tmp_path / "ml_token.json"
+    monkeypatch.setenv("ML_CLIENT_ID", "123")
+    monkeypatch.setenv("ML_CLIENT_SECRET", "seg")
+    monkeypatch.setenv("ML_REDIRECT_URI", "https://www.google.com/")
+    pedidos = []
+
+    def token_falso(campos):
+        pedidos.append(campos)
+        n = len(pedidos)
+        return {"access_token": f"A{n}", "refresh_token": f"R{n}", "expires_in": 21600}, 200
+
+    monkeypatch.setattr(ml, "_pedir_token", token_falso)
+    assert "client_id=123" in ml.link_login() and "redirect_uri=https" in ml.link_login()
+    ok, _ = ml.trocar_codigo("https://www.google.com/?code=TG-xyz&state=1", caminho=arq)
+    assert ok and pedidos[0]["code"] == "TG-xyz" and pedidos[0]["grant_type"] == "authorization_code"
+    assert ml.token_valido(arq) == "A1" and len(pedidos) == 1  # ainda válido: não renova
+
+    import json
+    dados = json.loads(arq.read_text())
+    dados["expira_em"] = _t.time() - 1  # venceu
+    arq.write_text(json.dumps(dados))
+    assert ml.token_valido(arq) == "A2"
+    assert pedidos[1] == {"grant_type": "refresh_token", "client_id": "123", "client_secret": "seg", "refresh_token": "R1"}
+    assert json.loads(arq.read_text())["refresh_token"] == "R2"  # guarda o refresh novo
+
+
+def test_ml_tarefas_de_varredura():
+    fonte = ml.FonteMercadoLivre(termos_varredura=["perfume masculino", "perfume arabe"], paginas=2)
+    assert len(fonte.tarefas_varredura()) == 4

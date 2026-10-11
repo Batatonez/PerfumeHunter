@@ -6,6 +6,7 @@
   python -m scentinel testar URL --salvar  -> também salva o HTML em tests/fixtures/reais/
   python -m scentinel lojas              -> testa a busca em cada loja do config.toml
   python -m scentinel lojas --termo "lattafa khamrah"
+  python -m scentinel ml-login           -> login do Mercado Livre (uma vez)
 """
 
 import argparse
@@ -85,6 +86,19 @@ def lojas(termo, so=None):
         oficiais = sum(1 for a in res.achados if a.oficial)
         print(f"✅ {fonte.nome:22} {len(res.achados)} resultado(s), {oficiais} oficial(is), "
               f"{len(casam)} reconhecido(s) no catálogo")
+        tarefas = fonte.tarefas_varredura() if hasattr(fonte, "tarefas_varredura") else []
+        if tarefas:
+            time.sleep(random.uniform(cfg.delay_min_s, cfg.delay_max_s))
+            rotulo, tarefa = tarefas[0]
+            v = tarefa()
+            if v.erro:
+                print(f"     varredura: ❌ {v.erro}")
+            else:
+                promos = [a for a in v.achados if catalogo.e_perfume(a.titulo) and a.preco_de
+                          and a.preco_de >= a.preco * 1.2]
+                print(f"     varredura ({rotulo}): {len(v.achados)} produto(s), {len(promos)} perfume(s) com 20%+ OFF")
+                for a in sorted(promos, key=lambda a: a.preco / a.preco_de)[:3]:
+                    print(f"       −{(1 - a.preco / a.preco_de) * 100:.0f}% {formatar_reais(a.preco)} · {a.titulo[:60]}")
         for a, item in casam[:3]:
             ml = a.ml or catalogo.extrair_ml(a.titulo, a.variacao or "")
             de = f" (de {formatar_reais(a.preco_de)})" if a.preco_de else ""
@@ -98,6 +112,33 @@ def lojas(termo, so=None):
     return 0
 
 
+def ml_login():
+    """Login do Mercado Livre (uma vez). Depois o bot renova o token sozinho."""
+    from scentinel.fontes import mercadolivre as ml
+
+    cid, segredo, redirect = ml.credenciais()
+    if not cid or not segredo:
+        print("❌ Falta ML_CLIENT_ID e ML_CLIENT_SECRET no .env (veja o README, seção Mercado Livre).")
+        return 1
+    print("1) Abra este link no navegador, entre na sua conta do Mercado Livre e clique em Permitir:\n")
+    print(f"   {ml.link_login()}\n")
+    print(f"2) Ele vai abrir {redirect} com um ?code=TG-... no endereço.")
+    print("   Copie o ENDEREÇO INTEIRO da barra do navegador e cole aqui:\n")
+    codigo = input("   endereço ou código: ").strip()
+    ok, msg = ml.trocar_codigo(codigo)
+    if not ok:
+        print(f"\n❌ Não deu: {msg}")
+        print("   (o código vale poucos minutos e só uma vez: rode de novo e cole rapidinho)")
+        return 1
+    print("\n✅ Login feito! Testando a busca...")
+    res = ml.FonteMercadoLivre().buscar("sauvage dior")
+    if res.erro:
+        print(f"⚠️  Login ok, mas a busca deu: {res.erro}")
+        return 1
+    print(f"✅ Busca ok: {len(res.achados)} anúncio(s) de loja oficial. Pode reiniciar o bot.")
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="python -m scentinel", description="Scentinel 🐈‍⬛ o gato de guarda dos perfumes")
     sub = parser.add_subparsers(dest="comando")
@@ -108,13 +149,19 @@ def main(argv=None):
     p_lojas = sub.add_parser("lojas", help="testa a busca automática em cada loja")
     p_lojas.add_argument("--termo", default="sauvage dior", help="o que buscar (padrão: sauvage dior)")
     p_lojas.add_argument("--so", help="testa só a loja com esse nome (ex.: sephora)")
+    sub.add_parser("ml-login", help="login do Mercado Livre (uma vez)")
     sub.add_parser("bot", help="liga o bot (padrão)")
 
     args = parser.parse_args(argv)
+    from dotenv import load_dotenv
+
+    load_dotenv(config.ARQ_ENV)  # ML_CLIENT_ID etc. também valem nos comandos de terminal
     if args.comando == "testar":
         return testar(args.url, args.seletor, args.salvar)
     if args.comando == "lojas":
         return lojas(args.termo, args.so)
+    if args.comando == "ml-login":
+        return ml_login()
 
     from scentinel.bot import rodar
 

@@ -4,7 +4,7 @@
 
 *O gato de guarda dos perfumes.*
 
-Bot de Discord que funciona como um **canal de promos de perfume**: procura sozinho ofertas de ~80 perfumes cobiçados (designer, nicho, árabes e nacionais) no Mercado Livre e em lojas como Sephora, Época, Beleza na Web, Boticário e Natura, posta as melhores classificadas em **níveis**, manda um **🏆 Top do dia** e responde `/locate nome [marca]` com a maior promo. Também vigia links específicos que você cadastrar com `/add`.
+Bot de Discord que funciona como um **canal de promos de perfume** (estilo MDLinks, só perfume): de hora em hora varre as ofertas do **Mercado Livre (só lojas oficiais)** e de lojas confiáveis como Época, Sephora, Boticário e Natura, e posta **qualquer perfume em promo boa**, com foto, ~~preço antigo~~ → preço novo e nível de desconto. Manda um **🏆 Top do dia**, e o `/locate nome [marca]` pesquisa qualquer perfume nas lojas na hora. Também vigia links específicos que você cadastrar com `/add`.
 
 Feito pra rodar 24/7 num notebook velho (3 GB de RAM): sem navegador headless, uma requisição por vez e uns 60 MB de RAM.
 
@@ -264,7 +264,8 @@ Reinicie com a tampa fechada (`sudo reboot`). Espere uns 2 minutos e veja se o b
 
 | Comando | Quem | O que faz |
 |---|---|---|
-| `/locate nome [marca]` | todo mundo | procura em todos os anúncios cadastrados e mostra a **maior promo**, os próximos colocados e o **menor R$/ml**. Aceita nome aproximado (`bleu edp`, `savage`) e filtra pela marca se você preencher (`/locate nome:sauvage marca:dior`). Se a leitura estiver velha, rechecha na hora. |
+| `/locate nome [marca]` | todo mundo | **pesquisa nas lojas na hora** (qualquer perfume, não precisa cadastrar) e mostra o mais barato, as outras ofertas, desconto e R$/ml. Ex.: `/locate nome:khamrah marca:lattafa` |
+| `/varrer` | dono | força a varredura de ofertas agora (normalmente é de hora em hora) |
 | `/add url nome ml [alvo] [marca] [seletor]` | dono | cadastra um anúncio, **testa o preço na hora** e mostra o que leu |
 | `/remove anuncio` | dono | para de vigiar (tem autocomplete) |
 | `/top` | todo mundo | as melhores promos das últimas 24 h, uma por perfume |
@@ -315,7 +316,12 @@ Educação com as lojas (não negociável):
 
 ## 8.5. Canal de promos (busca automática)
 
-O bot pega cada perfume do `catalogo.toml` e busca nas lojas do `config.toml` (seção `[descoberta]`), uma busca por vez com pausa educada entre elas. Cada perfume é buscado em cada loja no máximo a cada 6 h.
+São dois jeitos, rodando juntos:
+
+1. **Varredura (o principal):** de hora em hora o bot percorre as ofertas de perfume das lojas: no Mercado Livre, vários termos ("perfume masculino", "perfume árabe", "eau de parfum"...) só em **loja oficial**; nas lojas VTEX, a lista de perfumes **ordenada por maior desconto**. Posta **qualquer perfume** em promo boa, os maiores descontos primeiro. Perfume que aparece em várias lojas é reconhecido como o mesmo (pelo nome e tamanho) e só o mais barato é postado.
+2. **Catálogo:** o `catalogo.toml` tem ~80 perfumes famosos com preço normal de mercado. Eles são buscados um a um (a cada 6 h por loja) e têm comparação de preço mais precisa.
+
+Uma busca por vez, com pausa educada entre elas.
 
 O que ele faz com o que acha:
 - **Descarta o que não é o frasco:** kit, decant, amostra, miniatura, tester, contratipo, "inspirado em", body splash, hidratante. ("Desodorante Colônia" do Boticário/Natura é perfume e **entra**.)
@@ -333,7 +339,25 @@ O que ele faz com o que acha:
 .venv/bin/python -m scentinel lojas --so boticario --termo "malbec"
 ```
 
-Nas que derem ❌, coloque `ativo = false` no `config.toml`. Mercado Livre: por padrão só entra **loja oficial** (tem muito perfume falsificado lá). Se a API do ML pedir login, ele usa a página de busca; ou crie um app grátis em developers.mercadolivre.com.br e coloque `ML_CLIENT_ID` e `ML_CLIENT_SECRET` no `.env`.
+Nas que derem ❌, coloque `ativo = false` no `config.toml`.
+
+### Mercado Livre (precisa de login, uma vez)
+
+A busca do ML só funciona com um app (grátis) logado; sem isso ele pede captcha. Só entra **loja oficial** (tem muito perfume falsificado lá).
+
+1. Entre em <https://developers.mercadolivre.com.br/devcenter> com sua conta do ML e clique em **Criar uma aplicação**.
+2. Preencha: nome `Scentinel`, descrição qualquer, e em **URI de redirect** coloque `https://www.google.com/`. Nos escopos/permissões, deixe só **leitura**. Salve.
+3. Copie o **App ID** e a **Secret Key** que aparecem e coloque no `.env`:
+   ```
+   ML_CLIENT_ID=o_app_id
+   ML_CLIENT_SECRET=a_secret_key
+   ML_REDIRECT_URI=https://www.google.com/
+   ```
+4. Rode o login e siga o que aparecer (abre um link, você clica em Permitir, cola o endereço do Google que abriu):
+   ```bash
+   .venv/bin/python -m scentinel ml-login
+   ```
+5. Reinicie o bot. O token é renovado sozinho daí pra frente (fica em `dados/ml_token.json`, fora do git).
 
 **Mexer no catálogo:** abra o `catalogo.toml`. Cada perfume tem preço normal, "preço bom", termos de busca e palavras a evitar (flankers). Os preços vêm estimados; ajuste à vontade e reinicie o bot.
 

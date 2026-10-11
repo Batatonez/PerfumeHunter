@@ -32,6 +32,11 @@ class ConfigDescoberta:
     so_menor_preco: bool = True  # mesmo perfume e tamanho mais barato em outra loja -> não posta
     top_diario: str = "19:00"  # horário do 🏆 Top do dia ("" desliga)
     top_n: int = 5
+    varredura: bool = True  # varre as ofertas de perfume das lojas (estilo canal de promos)
+    varredura_minutos: float = 60
+    ml_min: float = 30  # frascos menores que isso (miniaturas) ficam de fora
+    preco_min: float = 40
+    desconto_min_rastrear: float = 10  # na varredura, só guarda perfume fora do catálogo com desconto >= isso
     fontes: list = field(default_factory=list)
 
 
@@ -123,6 +128,11 @@ def carregar_config(caminho=ARQ_CONFIG):
         so_menor_preco=bool(d.get("so_menor_preco", True)),
         top_diario=str(d.get("top_diario", "19:00")),
         top_n=int(d.get("top_n", 5)),
+        varredura=bool(d.get("varredura", True)),
+        varredura_minutos=max(float(d.get("varredura_minutos", 60)), 30),
+        ml_min=float(d.get("ml_min", 30)),
+        preco_min=float(d.get("preco_min", 40)),
+        desconto_min_rastrear=float(d.get("desconto_min_rastrear", 10)),
         fontes=list(d.get("fontes", [])),
     )
 

@@ -25,6 +25,8 @@ class Achado:
     oficial: bool = False  # loja oficial / vendido pela própria loja
     ml: float | None = None
     variacao: str | None = None  # nome do SKU (ex.: "100ml")
+    imagem: str | None = None  # foto do produto (vai no post)
+    chave: str | None = None  # id do mesmo produto entre vendedores (ex.: catálogo do ML)
 
 
 @dataclass

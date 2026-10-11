@@ -90,6 +90,7 @@ MIGRACOES = {
         "fonte": "TEXT",                             # de onde veio (ex.: 'vtex:epocacosmeticos.com.br')
         "titulo": "TEXT",                            # título do produto na loja
         "oficial": "INTEGER NOT NULL DEFAULT 0",     # loja oficial / vendido pela própria loja
+        "imagem": "TEXT",                            # foto do produto
     },
 }
 
@@ -346,21 +347,21 @@ def registrar_busca(con, item_id, fonte, quando, erro=None, achados=0):
     con.commit()
 
 
-def salvar_anuncio_descoberto(con, perfume_id, loja, url, ml, alvo, catalogo_id, fonte, titulo, oficial):
+def salvar_anuncio_descoberto(con, perfume_id, loja, url, ml, alvo, catalogo_id, fonte, titulo, oficial, imagem=None):
     """Cria ou atualiza (pela URL) um anúncio achado pela busca automática."""
     existente = anuncio_por_url(con, url)
     if existente:
         con.execute(
             "UPDATE anuncios SET perfume_id = ?, loja = ?, ml = ?, alvo = ?, catalogo_id = ?, fonte = ?,"
-            " titulo = ?, oficial = ?, ativo = 1 WHERE id = ?",
-            (perfume_id, loja, ml, alvo, catalogo_id, fonte, titulo, int(oficial), existente["id"]),
+            " titulo = ?, oficial = ?, imagem = COALESCE(?, imagem), ativo = 1 WHERE id = ?",
+            (perfume_id, loja, ml, alvo, catalogo_id, fonte, titulo, int(oficial), imagem, existente["id"]),
         )
         con.commit()
         return anuncio_por_id(con, existente["id"])
     cur = con.execute(
-        "INSERT INTO anuncios (perfume_id, loja, url, ml, alvo, criado_em, origem, catalogo_id, fonte, titulo, oficial)"
-        " VALUES (?, ?, ?, ?, ?, ?, 'descoberta', ?, ?, ?, ?)",
-        (perfume_id, loja, url, ml, alvo, para_texto(agora_utc()), catalogo_id, fonte, titulo, int(oficial)),
+        "INSERT INTO anuncios (perfume_id, loja, url, ml, alvo, criado_em, origem, catalogo_id, fonte, titulo, oficial, imagem)"
+        " VALUES (?, ?, ?, ?, ?, ?, 'descoberta', ?, ?, ?, ?, ?)",
+        (perfume_id, loja, url, ml, alvo, para_texto(agora_utc()), catalogo_id, fonte, titulo, int(oficial), imagem),
     )
     con.commit()
     return anuncio_por_id(con, cur.lastrowid)

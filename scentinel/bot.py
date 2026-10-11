@@ -167,9 +167,13 @@ class BotScentinel(discord.Client):
     @tasks.loop(minutes=10)
     async def loop_descoberta(self):
         try:
-            await self.descoberta.rodada()
+            await self.descoberta.varredura()  # de hora em hora: qualquer perfume em promo
         except Exception:
-            log.exception("erro na busca automática")
+            log.exception("erro na varredura")
+        try:
+            await self.descoberta.rodada(max_segundos=30 * 60)  # catálogo, sem travar a próxima varredura
+        except Exception:
+            log.exception("erro na busca do catálogo")
 
     @loop_descoberta.before_loop
     async def antes_da_descoberta(self):
@@ -242,7 +246,7 @@ async def autocomplete_anuncio(interaction, atual):
 # ============================================================
 
 def registrar_comandos(tree):
-    @tree.command(name="locate", description="Procura um perfume em todos os anúncios e mostra a maior promo")
+    @tree.command(name="locate", description="Pesquisa um perfume nas lojas agora e mostra o mais barato")
     @app_commands.describe(
         nome="Nome do perfume (pode ser aproximado, ex.: 'sauvage edp')",
         marca="Marca (opcional, ex.: 'dior')",
@@ -255,7 +259,22 @@ def registrar_comandos(tree):
         async def avisar_rechecagem(n):
             await interaction.edit_original_response(content=f"⏳ checando {n} loja(s)...")
 
+        if bot.descoberta:
+            lojas = [f.nome for f in bot.descoberta.fontes if not bot.descoberta.pausada(f)]
+            await interaction.edit_original_response(content=f"🔎 procurando em {len(lojas)} loja(s)...")
+            ao_vivo = await bot.descoberta.buscar_ao_vivo(nome, marca)
+            if ao_vivo.ofertas:
+                await interaction.edit_original_response(
+                    content=None, embed=discord.Embed.from_dict(formato.embed_ao_vivo(ao_vivo))
+                )
+                return
+
         resposta = await bot.cacador.locate(nome, ao_rechecar=avisar_rechecagem, marca=marca)
+        if resposta.texto and bot.descoberta:
+            await interaction.edit_original_response(
+                content=None, embed=discord.Embed.from_dict(formato.embed_ao_vivo(ao_vivo))
+            )
+            return
         if resposta.texto:
             await interaction.edit_original_response(content=resposta.texto)
             return
@@ -406,6 +425,24 @@ def registrar_comandos(tree):
         ofertas = bot.descoberta.top()
         embed = formato.embed_top(ofertas, titulo="🏆 Melhores promos agora", nome_fuso=bot.cfg.fuso)
         await interaction.response.send_message(embed=discord.Embed.from_dict(embed))
+
+    @tree.command(name="varrer", description="Varre as ofertas de perfume das lojas agora (só o dono)")
+    async def varrer(interaction: discord.Interaction):
+        bot = interaction.client
+        if not bot.eh_dono(interaction):
+            await interaction.response.send_message("Só o dono pode usar isso 🙅", ephemeral=True)
+            return
+        if not bot.descoberta:
+            await interaction.response.send_message("A busca automática está desligada no config.toml.")
+            return
+        await interaction.response.defer(thinking=True)
+        linhas = await bot.descoberta.varredura(forcar=True)
+        postados = sum(1 for linha in linhas if linha.startswith("🔥"))
+        problemas = [linha for linha in linhas if linha.startswith(("🚫", "❌", "⏸️"))]
+        texto = f"🧹 Varredura feita: {postados} promo(s) postada(s) no canal."
+        if problemas:
+            texto += "\n" + "\n".join(problemas[:8])
+        await interaction.edit_original_response(content=formato.cortar(texto, 1900))
 
     @tree.command(name="checar", description="Força uma rodada de checagem agora (só o dono)")
     async def checar(interaction: discord.Interaction):

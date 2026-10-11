@@ -114,6 +114,15 @@ so_menor_preco = true
 # 🏆 Top do dia (horário de Brasília; "" desliga) e quantos itens.
 top_diario = "19:00"
 top_n = 5
+# VARREDURA (estilo canal de promos): de hora em hora percorre as ofertas de perfume das lojas
+# e posta QUALQUER perfume em promo boa (não só os do catálogo), maiores descontos primeiro.
+varredura = true
+varredura_minutos = 60
+# Miniatura e coisa barata demais ficam de fora.
+ml_min = 30
+preco_min = 40
+# Perfume fora do catálogo só é guardado se a loja anunciar pelo menos esse desconto (%).
+desconto_min_rastrear = 10
 
 # Lojas onde o bot procura. Rode `.venv/bin/python -m scentinel lojas` no notebook pra ver quais
 # funcionam de verdade, e troque `ativo = false` nas que não funcionarem.
@@ -124,6 +133,10 @@ top_n = 5
 tipo = "mercadolivre"
 # Perfume falsificado é comum no ML: só anúncios de loja oficial.
 so_loja_oficial = true
+# Precisa do login uma vez: python -m scentinel ml-login (veja o README).
+# Termos da varredura (cada um, 2 páginas de 50):
+termos_varredura = ["perfume masculino", "perfume feminino", "perfume importado", "perfume arabe",
+                    "eau de parfum", "eau de toilette", "perfume nicho", "perfume unissex"]
 
 [[descoberta.fontes]]
 tipo = "vtex"
@@ -141,6 +154,8 @@ categorias = ["designer", "nicho", "arabe"]
 tipo = "vtex"
 dominio = "www.belezanaweb.com.br"
 nome = "Beleza na Web"
+# deu 404 nas duas buscas da VTEX no teste: não é VTEX
+ativo = false
 categorias = ["designer", "nicho", "arabe"]
 
 [[descoberta.fontes]]

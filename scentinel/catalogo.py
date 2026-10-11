@@ -144,6 +144,12 @@ def carregar_catalogo(caminho=ARQ_CATALOGO):
 # CASAMENTO: o título da loja é esse item do catálogo?
 # ============================================================
 
+def _palavras_conc():
+    from scentinel.busca import _CODIGOS
+
+    return _CODIGOS
+
+
 def _palavras(texto_norm):
     from scentinel.busca import _CODIGOS
 
@@ -249,3 +255,44 @@ def identificar(titulo, catalogo, marca_loja=None, so_itens=None):
     if not candidatos:
         return None
     return max(candidatos, key=lambda i: (len(_palavras(normalizar(i.nome))), bool(i.concentracao)))
+
+
+# ============================================================
+# QUALQUER PERFUME (varredura): sem depender do catálogo
+# ============================================================
+
+_RE_PERFUME = re.compile(
+    r"\b(perfume|perfumes|fragrancia|eau de parfum|eau de toilette|eau de cologne|edp|edt|parfum|"
+    r"extrait|elixir|colonia|deo parfum|deo colonia|cologne)\b"
+)
+_LIXO_NOME = re.compile(
+    r"\b(perfume|perfumes|masculino|masculina|feminino|feminina|unissex|unisex|original|originais|importado|"
+    r"lacrado|lacrada|novo|nova|spray|vaporizador|vapo|frasco|com caixa|selo adipec|selo|nota fiscal|"
+    r"pronta entrega|envio imediato|promocao|oferta|frete gratis|100% original)\b",
+    re.IGNORECASE,
+)
+
+
+def e_perfume(titulo):
+    """O título é de um perfume (e não de creme, maquiagem, kit...)?"""
+    return bool(_RE_PERFUME.search(texto_titulo(titulo))) and not e_lixo(titulo)
+
+
+def nome_limpo(titulo, limite=70):
+    """'Perfume Afnan 9PM Masculino EDP 100ml - Original' -> 'Afnan 9PM EDP'."""
+    t = sem_acento(str(titulo or ""))
+    t = re.sub(r"\d+([.,]\d+)?\s*ml\b", " ", t, flags=re.IGNORECASE)
+    t = _LIXO_NOME.sub(" ", t)
+    t = re.sub(r"[|/\\\-–—+()\[\]]+", " ", t)
+    t = re.sub(r"\s+", " ", t).strip(" .,")
+    if not t:
+        t = str(titulo or "").strip()
+    return t[:limite].rstrip()
+
+
+def chave_generica(titulo, ml, marca=None):
+    """Chave pra reconhecer o mesmo produto em lojas diferentes sem catálogo:
+    palavras do nome (normalizadas, sem as genéricas, em ordem) + tamanho."""
+    texto = normalizar(nome_limpo(f"{titulo} {marca or ''}"))
+    palavras = sorted(set(p for p in texto.split() if len(p) > 1 or p.isdigit()))
+    return f"t:{' '.join(palavras)}|{ml:g}" if palavras and ml else None

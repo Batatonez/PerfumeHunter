@@ -81,7 +81,7 @@ def test_comandos_registram_sem_erro():
     bot = BotScentinel(config.carregar_config(), segredos, db.conectar(":memory:"))
     registrar_comandos(bot.tree)
     nomes = {c.name for c in bot.tree.get_commands()}
-    assert nomes == {"locate", "add", "remove", "lista", "historico", "checar", "teste_alerta", "top"}
+    assert nomes == {"locate", "add", "remove", "lista", "historico", "checar", "teste_alerta", "top", "varrer"}
 
 
 def test_bot_fora_do_servidor_mostra_link_de_convite(caplog):

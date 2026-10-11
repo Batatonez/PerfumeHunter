@@ -6,7 +6,7 @@ com discord.Embed.from_dict() no bot.
 
 from datetime import UTC, timedelta, timezone
 
-from scentinel.promo import FONTE_CATALOGO, FONTE_LOJA
+from scentinel.promo import FONTE_CATALOGO, FONTE_LOJA, FONTE_MERCADO
 
 try:
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -53,6 +53,8 @@ def cortar(texto, limite=LIMITE_DESCRICAO):
 def linha_preco(oferta):
     av = oferta.avaliacao
     partes = [f"💰 **{formatar_reais(oferta.preco)}**"]
+    if oferta.preco_de:
+        partes = [f"~~{formatar_reais(oferta.preco_de)}~~ →"] + partes
     if av.referencia:
         partes.append(f"(ref. {formatar_reais(av.referencia)})")
     if oferta.por_ml:
@@ -73,6 +75,8 @@ def linhas_detalhe(oferta):
         linhas.append("📢 desconto anunciado pela loja (sem histórico ainda)")
     elif oferta.avaliacao.fonte == FONTE_CATALOGO:
         linhas.append("📊 comparado com o preço normal de mercado")
+    elif oferta.avaliacao.fonte == FONTE_MERCADO:
+        linhas.append("📊 comparado com a 2ª loja mais barata")
     if oferta.bateu_alvo and oferta.alvo:
         if oferta.origem == "descoberta":
             linhas.append(f"💸 Abaixo de {formatar_reais(oferta.alvo)}, preço bom pra esse perfume")
@@ -113,13 +117,16 @@ def cor_da_oferta(oferta):
 
 def embed_alerta(oferta, nome_fuso="America/Sao_Paulo"):
     descricao = [f"**{oferta.titulo}** · {oferta.loja}"] + linhas_detalhe(oferta)
-    return {
+    embed = {
         "title": titulo_nivel(oferta),
         "url": oferta.url,
         "color": cor_da_oferta(oferta),
         "description": cortar("\n".join(descricao)),
         "footer": {"text": f"Checado em {formatar_data(oferta.quando, nome_fuso)}"},
     }
+    if oferta.imagem:
+        embed["thumbnail"] = {"url": oferta.imagem}
+    return embed
 
 
 # ============================================================
@@ -197,3 +204,53 @@ def embed_top(ofertas, titulo="🏆 Top do dia", nome_fuso="America/Sao_Paulo"):
         "description": cortar("\n\n".join(linhas)),
         "footer": {"text": f"Preços de {formatar_data(max(o.quando for o in ofertas), nome_fuso)} · podem mudar a qualquer momento"},
     }
+
+
+# ============================================================
+# /locate ao vivo
+# ============================================================
+
+def _linha_oferta_viva(achado, ml, pct):
+    partes = [f"**{formatar_reais(achado.preco)}**"]
+    if achado.preco_de:
+        partes.insert(0, f"~~{formatar_reais(achado.preco_de)}~~")
+    if pct >= 1:
+        partes.append(f"−{formatar_pct(pct)}")
+    partes.append(achado.loja + (" 🛡️" if achado.oficial else ""))
+    if ml:
+        partes.append(f"{ml:g}ml · {formatar_reais(achado.preco / ml)}/ml")
+    return " · ".join(partes)
+
+
+def embed_ao_vivo(res, max_linhas=8):
+    if not res.ofertas:
+        onde = ", ".join(res.lojas_ok) or "nenhuma loja respondeu"
+        return {
+            "title": f"🔎 {res.consulta}",
+            "color": COR_NEUTRA,
+            "description": f"Não achei **{res.consulta}** em nenhuma loja agora ({onde}). Confere o nome? 🐈‍⬛",
+        }
+    primeiro, ml, pct = res.ofertas[0]
+    linhas = [
+        f"🏆 **Mais barato:** [{primeiro.titulo[:90]}]({primeiro.url})",
+        "💰 " + _linha_oferta_viva(primeiro, ml, pct),
+    ]
+    if primeiro.preco_pix:
+        linhas.append(f"⚡ Pix: {formatar_reais(primeiro.preco_pix)}")
+    if len(res.ofertas) > 1:
+        linhas += ["", "**Outras ofertas:**"]
+        for achado, ml2, pct2 in res.ofertas[1:max_linhas]:
+            linhas.append(f"• [{achado.titulo[:55]}]({achado.url})\n  " + _linha_oferta_viva(achado, ml2, pct2))
+    rodape = f"Procurei em: {', '.join(res.lojas_ok)}"
+    if res.lojas_falha:
+        rodape += f" · fora do ar agora: {', '.join(res.lojas_falha)}"
+    embed = {
+        "title": f"🔎 {res.consulta} — {len(res.ofertas)} oferta(s)",
+        "url": primeiro.url,
+        "color": 0x2024CC,
+        "description": cortar("\n".join(linhas)),
+        "footer": {"text": cortar(rodape + " · 🛡️ = loja oficial", 2000)},
+    }
+    if primeiro.imagem:
+        embed["thumbnail"] = {"url": primeiro.imagem}
+    return embed

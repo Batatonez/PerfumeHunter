@@ -90,9 +90,24 @@ class Cacador:
     def _item(self, anuncio):
         return self.catalogo.get(anuncio.get("catalogo_id")) if anuncio.get("catalogo_id") else None
 
-    def _ref_catalogo(self, anuncio):
+    def _refs_descoberta(self, anuncio, preco, quando):
+        """(ref_catalogo, ref_mercado) pra um anúncio da busca automática.
+        Mercado = 2ª oferta mais barata (contando esta) do mesmo perfume e tamanho nas últimas 48 h:
+        quem está bem abaixo da 2ª mais barata está em promo de verdade, e vendedor que
+        cobra o dobro não infla a referência. Com dados de mercado, o preço estimado do
+        catálogo vira só um teto folgado (x1,25), porque ele é uma estimativa."""
         item = self._item(anuncio)
-        return item.referencia_para(anuncio["ml"]) if item else None
+        if (anuncio.get("origem") or "manual") != "descoberta" or not anuncio.get("catalogo_id") or not anuncio.get("ml"):
+            return None, None
+        outros = db.ofertas_recentes_do_item(
+            self.con, anuncio["catalogo_id"], anuncio["ml"], quando - timedelta(hours=48), exceto_id=anuncio["id"]
+        )
+        precos = sorted([o["preco"] for o in outros] + [preco])
+        ref_mercado = precos[1] if len(precos) >= 2 else None
+        ref_catalogo = item.referencia_para(anuncio["ml"]) if item else None
+        if ref_catalogo and ref_mercado:
+            ref_catalogo = round(ref_catalogo * 1.25, 2)
+        return ref_catalogo, ref_mercado
 
     def _oferta(self, anuncio, leitura, quando, avaliacao, bateu_alvo=False):
         item = self._item(anuncio)
@@ -113,12 +128,14 @@ class Cacador:
             origem=anuncio.get("origem") or "manual",
             categoria=item.rotulo_categoria if item else None,
             oficial=bool(anuncio.get("oficial")),
+            preco_de=leitura.preco_de if leitura.preco_de and leitura.preco_de > leitura.preco else None,
+            imagem=anuncio.get("imagem"),
         )
 
     def _avaliar(self, anuncio, leitura, quando):
         avaliacao = promo.avaliar(
             leitura.preco, leitura.preco_de, self._historico(anuncio["id"], quando),
-            self.cfg.niveis, self.cfg.ref_min_leituras, self._ref_catalogo(anuncio),
+            self.cfg.niveis, self.cfg.ref_min_leituras, *self._refs_descoberta(anuncio, leitura.preco, quando),
         )
         estado = promo.Estado(anuncio["nivel_avisado"], bool(anuncio["alvo_avisado"]))
         nivel_minimo = self.cfg.nivel_minimo_para(anuncio["perfume_nome"])
@@ -134,8 +151,11 @@ class Cacador:
         av = oferta.avaliacao
         texto = f"{nome}: {formatar_reais(oferta.preco)}"
         if av.referencia:
-            texto += f" (ref {formatar_reais(av.referencia)} −{formatar_pct(max(av.pct, 0))}"
-            texto += f" · nível {av.nivel.nivel})" if av.nivel else ")"
+            if av.pct >= 0.5:
+                texto += f" (ref {formatar_reais(av.referencia)} −{formatar_pct(av.pct)}"
+                texto += f" · nível {av.nivel.nivel})" if av.nivel else ")"
+            else:
+                texto += f" (ref {formatar_reais(av.referencia)}, sem desconto)"
         if oferta.esgotado:
             texto += " ESGOTADO"
         return texto
@@ -305,7 +325,7 @@ class Cacador:
         )
         avaliacao = promo.avaliar(
             leitura.preco, leitura.preco_de, self._historico(anuncio["id"], quando),
-            self.cfg.niveis, self.cfg.ref_min_leituras, self._ref_catalogo(anuncio),
+            self.cfg.niveis, self.cfg.ref_min_leituras, *self._refs_descoberta(anuncio, leitura.preco, quando),
         )
         bateu = bool(anuncio["alvo"] and leitura.preco <= anuncio["alvo"])
         return self._oferta(anuncio, leitura, quando, avaliacao, bateu_alvo=bateu)
