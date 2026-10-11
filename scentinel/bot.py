@@ -12,6 +12,16 @@ from scentinel.caca import Cacador
 log = logging.getLogger("scentinel")
 
 
+PERMISSOES = 19456  # ver canais + mandar mensagem + mandar embed
+
+
+def link_convite(application_id):
+    return (
+        "https://discord.com/oauth2/authorize"
+        f"?client_id={application_id}&scope=bot+applications.commands&permissions={PERMISSOES}"
+    )
+
+
 class BotScentinel(discord.Client):
     def __init__(self, cfg, segredos, con):
         intents = discord.Intents.none()
@@ -39,7 +49,16 @@ class BotScentinel(discord.Client):
         guild = discord.Object(id=self.segredos.guild_id)
         # sincroniza só no servidor do Davi: aparece na hora (global demora)
         self.tree.copy_global_to(guild=guild)
-        await self.tree.sync(guild=guild)
+        try:
+            await self.tree.sync(guild=guild)
+        except discord.Forbidden:
+            # 50001 Missing Access: o bot não está nesse servidor (ou entrou sem applications.commands)
+            log.error(
+                "❌ O bot não tem acesso ao servidor %s (GUILD_ID no .env).\n"
+                "   Convide ele com este link e rode de novo:\n   %s",
+                self.segredos.guild_id, link_convite(self.application_id),
+            )
+            raise SystemExit(1)
         self.loop_caca.start()
 
     async def on_ready(self):
@@ -328,6 +347,8 @@ def registrar_comandos(tree):
 def rodar():
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     logging.getLogger("discord").setLevel(logging.WARNING)
+    # o bot não usa voz: esconde os avisos "PyNaCl/davey is not installed"
+    logging.getLogger("discord.client").addFilter(lambda r: "voice will NOT be supported" not in r.getMessage())
     cfg = config.carregar_config()
     segredos = config.carregar_segredos()
     con = db.conectar(config.ARQ_DB)

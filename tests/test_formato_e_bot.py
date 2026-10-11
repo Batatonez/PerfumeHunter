@@ -81,3 +81,27 @@ def test_comandos_registram_sem_erro():
     registrar_comandos(bot.tree)
     nomes = {c.name for c in bot.tree.get_commands()}
     assert nomes == {"locate", "add", "remove", "lista", "historico", "checar", "teste_alerta"}
+
+
+def test_bot_fora_do_servidor_mostra_link_de_convite(caplog):
+    """403 Missing Access no sync -> mensagem clara com o link de convite, sem traceback gigante."""
+    import asyncio
+    from types import SimpleNamespace
+
+    import discord
+    import pytest
+
+    from scentinel.bot import BotScentinel, link_convite
+
+    bot = BotScentinel(config.carregar_config(), config.Segredos("x", 111, 2, 3), db.conectar(":memory:"))
+    bot._connection.application_id = 999
+
+    async def sync_negado(guild=None):
+        resposta = SimpleNamespace(status=403, reason="Forbidden")
+        raise discord.Forbidden(resposta, {"code": 50001, "message": "Missing Access"})
+
+    bot.tree.sync = sync_negado
+    with pytest.raises(SystemExit):
+        asyncio.run(bot.setup_hook())
+    assert link_convite(999) in caplog.text
+    assert "client_id=999&scope=bot+applications.commands&permissions=19456" in link_convite(999)
