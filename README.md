@@ -12,6 +12,7 @@ Feito pra rodar 24/7 num notebook velho (3 GB de RAM): sem navegador headless, u
 
 ## Sumário
 
+0. [Acessar o notebook pelo PC (SSH)](#0-acessar-o-notebook-pelo-pc-ssh)
 1. [Instalação do zero](#1-instalação-do-zero)
 2. [Criar o bot no Discord](#2-criar-o-bot-no-discord)
 3. [Preencher o .env](#3-preencher-o-env)
@@ -23,6 +24,39 @@ Feito pra rodar 24/7 num notebook velho (3 GB de RAM): sem navegador headless, u
 9. [Quando uma loja não funciona](#9-quando-uma-loja-não-funciona)
 10. [Dia a dia](#10-dia-a-dia)
 11. [Migrar pro Ubuntu Server](#11-migrar-pro-ubuntu-server)
+
+---
+
+## 0. Acessar o notebook pelo PC (SSH)
+
+Assim você controla o notebook do PC Windows, e o notebook pode ficar fechado num canto.
+
+**No notebook** (uma vez, com teclado e tela). O `sudo` pede sua senha. Esses comandos instalam e ligam o servidor SSH, que é o programa que aceita a conexão do PC:
+
+```bash
+sudo apt update
+sudo apt install -y openssh-server
+sudo systemctl enable --now ssh
+whoami          # seu usuário no notebook
+hostname -I     # IP do notebook na rede (o primeiro número, tipo 192.168.0.15)
+```
+
+**No PC Windows** (PowerShell ou Terminal; o Windows 10/11 já vem com `ssh`):
+
+```powershell
+ssh SEU_USUARIO@IP_DO_NOTEBOOK
+```
+
+Na primeira vez ele pergunta se confia no notebook: digite `yes` e depois a senha do notebook. Pra sair, digite `exit`.
+
+Opcional: entrar sem digitar senha. No PowerShell do PC:
+
+```powershell
+ssh-keygen -t ed25519
+type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh SEU_USUARIO@IP_DO_NOTEBOOK "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
+```
+
+> O IP pode mudar se o roteador reiniciar. Se o `ssh` parar de conectar, rode `hostname -I` no notebook de novo, ou reserve um IP fixo pro notebook nas configurações do roteador.
 
 ---
 
@@ -46,11 +80,26 @@ sudo apt update
 sudo apt install -y git python3-venv python3-pip
 ```
 
+O repo é **privado**, então o notebook precisa de uma chave SSH pra conseguir baixar. Crie a chave (sem senha, pra o `git pull` funcionar sozinho) e mostre a parte pública:
+
+```bash
+ssh-keygen -t ed25519 -C "scentinel-notebook" -f ~/.ssh/id_ed25519 -N ""
+cat ~/.ssh/id_ed25519.pub
+```
+
+Copie a linha que aparecer (começa com `ssh-ed25519`). No GitHub, vá no repo → **Settings → Deploy keys → Add deploy key**, cole a linha, dê o nome "notebook" e **deixe "Allow write access" desmarcado**. Assim essa chave só consegue *ler* este repo, e mais nada da sua conta.
+
+Teste (na primeira vez ele pergunta se confia no GitHub: digite `yes`):
+
+```bash
+ssh -T git@github.com     # tem que responder "Hi Batatonez/PerfumeHunter! You've successfully authenticated"
+```
+
 Baixe o projeto e rode o instalador. O instalador **não usa sudo**: ele só mexe dentro da pasta `~/scentinel`.
 
 ```bash
 cd ~
-git clone https://github.com/Batatonez/PerfumeHunter.git scentinel
+git clone -b claude/new-session-uawklz git@github.com:Batatonez/PerfumeHunter.git scentinel
 cd scentinel
 ./instalar.sh
 ```
