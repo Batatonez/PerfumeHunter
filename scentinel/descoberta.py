@@ -25,6 +25,8 @@ log = logging.getLogger("scentinel")
 
 ERROS_PRA_PAUSAR = 3  # erros seguidos numa loja -> pausa 24 h (ela provavelmente não tem essa busca)
 RELER_MESMO_PRECO_APOS = timedelta(hours=6)  # preço igual: só registra de novo depois disso
+NAO_REPOSTAR_POR = timedelta(days=7)  # mesmo anúncio a preço igual ou maior que o já postado: não reposta
+PRECO_SUSPEITO = 0.35  # perfume do catálogo a menos de 35% do normal: quase certo que não é o produto
 
 
 @dataclass
@@ -57,6 +59,8 @@ class Descoberta:
         self._fonte_falhas = {}  # bloqueios seguidos
         self._fonte_erros = {}  # erros seguidos (loja fora do ar, endpoint que não existe...)
         self._ultima_varredura = None
+        self.trava_varredura = asyncio.Lock()  # uma varredura por vez (loop e /varrer)
+        self._em_segundo_plano = set()
         cacador.catalogo = {i.id: i for i in self.itens}
 
     # ------------------------------------------------------------
@@ -97,6 +101,9 @@ class Descoberta:
 
     async def _filtro(self, anuncio, oferta):
         agora = self.cacador.relogio()
+        ja = db.ultimo_alerta(self.con, anuncio["id"], agora - NAO_REPOSTAR_POR)
+        if ja and oferta.preco >= ja["preco"] - 0.01:
+            return "já postado a esse preço"
         if db.alertas_desde(self.con, agora - timedelta(hours=1)) >= self.cfg.max_alertas_por_hora:
             return "limite de posts por hora"
         if self.cfg.so_menor_preco and anuncio.get("catalogo_id") and anuncio.get("ml"):
@@ -136,9 +143,11 @@ class Descoberta:
         )
 
     def preparar(self, achado, fonte, so_item=None):
-        """Achado -> Candidato (ou None se não é perfume, é lixo, não tem tamanho...).
-        so_item: busca do catálogo, só aceita esse item."""
+        """Achado -> Candidato (ou None se não é perfume, é lixo, não tem tamanho, não é loja confiável...).
+        so_item: busca do catálogo, só aceita esse item. Não mexe no banco (roda numa thread)."""
         if not achado.url or not achado.preco or not achado.disponivel:
+            return None
+        if self.cfg.so_oficial and not achado.oficial:
             return None
         if so_item is not None:
             ok, _ = catalogo.casar(so_item, achado.titulo, achado.marca, self.itens)
@@ -149,17 +158,26 @@ class Descoberta:
             if not catalogo.e_perfume(achado.titulo):
                 return None
             item = catalogo.identificar(achado.titulo, self.itens, achado.marca)
-        ml = achado.ml or catalogo.extrair_ml(achado.titulo, achado.variacao or "")
+        # o tamanho do SKU vale mais que o do título (o título do produto pode citar outro tamanho)
+        ml = achado.ml or catalogo.extrair_ml(achado.variacao or "") or catalogo.extrair_ml(achado.titulo)
         if not ml or ml < self.cfg.ml_min or achado.preco < self.cfg.preco_min:
             return None
         if item and item.ml and ml not in item.ml:
             if so_item is not None:
                 return None
             item = None  # tamanho fora do catálogo: trata como perfume qualquer
-        chave = item.id if item else (achado.chave or catalogo.chave_generica(achado.titulo, ml, achado.marca))
+        if item:
+            ref = item.referencia_para(ml)
+            if ref and achado.preco < ref * PRECO_SUSPEITO:
+                return None  # barato demais pra ser o original: contratipo/miniatura/erro
+        # chave pelo título (e não pelo id do ML): assim o mesmo perfume no ML e na Época se encontram
+        chave = item.id if item else catalogo.chave_generica(achado.titulo, ml, achado.marca)
         if not chave:
             return None
         return Candidato(achado, ml, item, chave, fonte)
+
+    def preparar_lote(self, achados, fonte, so_item=None):
+        return [c for c in (self.preparar(a, fonte, so_item) for a in achados) if c]
 
     def _vale_rastrear(self, c):
         """Na varredura, só guarda o que é do catálogo, tem desconto anunciado ou já é conhecido
@@ -207,26 +225,32 @@ class Descoberta:
         return rebuscar
 
     async def _processar(self, candidatos, agora, avisar=True):
-        """Salva, avalia e passa pelo motor de alertas. Maior desconto primeiro."""
-        fila, vistos = [], set()
+        """Salva, avalia e passa pelo motor de alertas. Maior desconto primeiro.
+        Do mesmo produto e tamanho no lote, só o mais barato pode ser postado (os outros só são gravados)."""
+        fila, vistos, menor_do_lote = [], set(), {}
         for c in candidatos:
             if c.achado.url in vistos:
                 continue
             vistos.add(c.achado.url)
             anuncio = self.salvar(c)
             if not anuncio:
-                continue
+                continue  # anúncio cadastrado à mão com /add: a busca automática não mexe
             leitura = self._leitura(c)
-            if not self._novidade(anuncio, leitura, agora):
-                continue
             avaliacao, _ = self.cacador._avaliar(anuncio, leitura, agora)
             fila.append((avaliacao.pct, anuncio, leitura, c))
+            grupo = (c.chave, c.ml)
+            menor_do_lote[grupo] = min(menor_do_lote.get(grupo, c.achado.preco), c.achado.preco)
         fila.sort(key=lambda t: -t[0])
         linhas = []
         for _pct, anuncio, leitura, c in fila:
+            pode_postar = avisar and c.achado.preco <= menor_do_lote[(c.chave, c.ml)]
             async with self.cacador.lock:
+                anuncio = db.anuncio_por_id(self.con, anuncio["id"])  # estado fresco, dentro da trava
+                if not anuncio:
+                    continue
                 chk = await self.cacador.processar_leitura(
-                    anuncio, leitura, agora, avisar=avisar, rebaixar=self._rebuscar(c), filtro=self._filtro,
+                    anuncio, leitura, agora, avisar=pode_postar, rebaixar=self._rebuscar(c), filtro=self._filtro,
+                    registrar=self._novidade(anuncio, leitura, agora),
                 )
             linhas.append(chk.linha)
         return linhas
@@ -243,6 +267,26 @@ class Descoberta:
         return agora - self._ultima_varredura >= timedelta(minutes=self.cfg.varredura_minutos)
 
     async def varredura(self, forcar=False):
+        if self.trava_varredura.locked():
+            return []
+        async with self.trava_varredura:
+            return await self._varredura(forcar)
+
+    def _marcar_esgotados(self, achados, fonte, agora):
+        """Anúncio conhecido que voltou sem estoque: grava 'esgotado' (sai da referência de mercado)."""
+        for a in achados:
+            if a.disponivel or not a.url:
+                continue
+            anuncio = db.anuncio_por_url(self.con, a.url)
+            if anuncio and (anuncio.get("origem") or "manual") == "descoberta":
+                ultima = db.ultima_leitura(self.con, anuncio["id"])
+                if ultima and ultima["esgotado"]:
+                    continue
+                preco = a.preco or (ultima["preco"] if ultima else None)
+                if preco:
+                    db.registrar_preco(self.con, anuncio["id"], Leitura(preco, f"busca:{fonte.id}", True), agora)
+
+    async def _varredura(self, forcar=False):
         agora = self.cacador.relogio()
         if not (forcar or self.varredura_vencida(agora)):
             return []
@@ -264,10 +308,11 @@ class Descoberta:
                     linhas.append(linha)
                     log.info(linha)
                     continue
+                self._marcar_esgotados(res.achados, fonte, self.cacador.relogio())
                 novos = 0
-                for a in res.achados:
-                    c = self.preparar(a, fonte)
-                    if c and self._vale_rastrear(c):
+                # casar título com catálogo é pesado: roda fora do loop do Discord
+                for c in await asyncio.to_thread(self.preparar_lote, res.achados, fonte):
+                    if self._vale_rastrear(c):
                         c.refazer = tarefa
                         candidatos.append(c)
                         novos += 1
@@ -303,11 +348,9 @@ class Descoberta:
     def selecionar(self, item, achados, fonte=None):
         """Achados que são mesmo esse item. Devolve [Candidato] (no máximo max_por_busca)."""
         escolhidos, vistos = [], set()
-        for a in achados:
+        for c in self.preparar_lote(achados, fonte, so_item=item):
+            a = c.achado
             if a.url in vistos:
-                continue
-            c = self.preparar(a, fonte, so_item=item)
-            if not c:
                 continue
             vistos.add(a.url)
             escolhidos.append(c)
@@ -406,10 +449,7 @@ class Descoberta:
                 ml = a.ml or catalogo.extrair_ml(a.titulo, a.variacao or "")
                 pct = (a.preco_de - a.preco) / a.preco_de * 100 if a.preco_de and a.preco_de > a.preco else 0
                 ofertas.append((a, ml, pct))
-                c = self.preparar(a, fonte)
-                if c:
-                    c.refazer = lambda f=fonte, q=consulta: f.buscar(q)
-                    candidatos.append(c)
+                candidatos.append((a, fonte))
         vistos, unicas = set(), []
         for o in sorted(ofertas, key=lambda o: o[0].preco):
             if o[0].url not in vistos:
@@ -417,8 +457,24 @@ class Descoberta:
                 unicas.append(o)
         resultado.ofertas = unicas
         if candidatos:
-            await self._processar(candidatos, agora, avisar=False)
+            # grava pro histórico/top em segundo plano: a resposta do /locate não espera a trava
+            tarefa = asyncio.create_task(self._gravar_ao_vivo(candidatos, consulta, agora))
+            self._em_segundo_plano.add(tarefa)
+            tarefa.add_done_callback(self._em_segundo_plano.discard)
         return resultado
+
+    async def _gravar_ao_vivo(self, pares, consulta, agora):
+        try:
+            cands = []
+            for a, fonte in pares:
+                c = self.preparar(a, fonte)
+                if c:
+                    c.refazer = lambda f=fonte, q=consulta: f.buscar(q)
+                    cands.append(c)
+            if cands:
+                await self._processar(cands, agora, avisar=False)
+        except Exception:
+            log.exception("erro gravando o resultado do /locate")
 
     # ------------------------------------------------------------
     # 🏆 Top do dia

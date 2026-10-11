@@ -48,21 +48,33 @@ PRODUTO_VTEX = {
 }
 
 
-def test_vtex_um_achado_por_sku():
+def test_vtex_um_achado_por_sku_so_da_propria_loja():
     achados = vtex.achados_do_produto(PRODUTO_VTEX, "www.loja.com.br", "Loja")
-    assert len(achados) == 3
-    a60, a100, a200 = achados
-
+    # o SKU de 100ml só tem estoque num parceiro do marketplace: fica de fora (confiança)
+    assert [a.variacao for a in achados] == ["60ml", "200ml"]
+    a60, a200 = achados
     assert a60.preco == 599.9 and a60.preco_de == 749.9 and a60.preco_pix == 569.9
     assert a60.marca == "Dior" and a60.oficial and a60.disponivel
     assert a60.url.endswith("/p?skuId=1001")
     assert "60ml" in a60.titulo
+    assert not a200.disponivel  # sem estoque
 
-    # SKU de 100ml: a loja não tem, mas um vendedor parceiro tem -> entra, mas não é "oficial"
-    assert a100.preco == 650.0 and not a100.oficial and a100.preco_de is None
 
-    # 200ml sem estoque
-    assert not a200.disponivel
+def test_vtex_parceiro_nao_e_oficial_nem_usa_o_de_dele():
+    # caso real da Época: parceiro marcado como sellerDefault, listado ANTES da loja, com "de" inflado
+    produto = {"productName": "Afnan 9PM EDP 100ml", "brand": "Afnan", "link": "/9pm/p", "items": [{
+        "itemId": "9", "name": "100ml", "sellers": [
+            {"sellerId": "lojaxyz", "sellerDefault": True,
+             "commertialOffer": {"Price": 229.0, "ListPrice": 557.0, "AvailableQuantity": 3}},
+            {"sellerId": "1", "sellerDefault": False,
+             "commertialOffer": {"Price": 319.0, "ListPrice": 319.0, "AvailableQuantity": 3}},
+        ]}]}
+    (a,) = vtex.achados_do_produto(produto, "www.epoca.com.br", "Época")
+    assert a.preco == 319.0 and a.oficial and a.preco_de is None  # a loja, a preço normal
+    # mesmo liberando parceiros, sem estoque na loja ele entra SEM selo e SEM o "de" inflado
+    produto["items"][0]["sellers"][1]["commertialOffer"]["AvailableQuantity"] = 0
+    (b,) = vtex.achados_do_produto(produto, "www.epoca.com.br", "Época", so_loja_propria=False)
+    assert b.preco == 229.0 and not b.oficial and b.preco_de is None
 
 
 def test_vtex_link_relativo_e_marca_padrao():
@@ -84,7 +96,7 @@ def test_vtex_busca_tenta_a_segunda_api(monkeypatch):
     monkeypatch.setattr(vtex, "baixar_json", falso)
     fonte = vtex.FonteVTEX("www.loja.com.br", nome="Loja")
     res = fonte.buscar("sauvage dior")
-    assert len(res.achados) == 3 and not res.erro
+    assert len(res.achados) == 2 and not res.erro
     # da próxima vez já vai direto na que funcionou
     chamadas.clear()
     fonte.buscar("sauvage dior")
@@ -148,12 +160,37 @@ def test_ml_html():
     assert len(ml.achados_do_html(HTML_ML, so_oficial=False)) == 2
 
 
-def test_ml_cai_pra_pagina_quando_api_pede_login(monkeypatch):
+def test_ml_cai_pra_pagina_quando_api_pede_login(monkeypatch, tmp_path):
+    monkeypatch.setattr(ml, "ARQ_TOKEN", tmp_path / "sem_login.json")
     monkeypatch.setattr(ml, "baixar_json", lambda *a, **k: (None, "bloqueado (HTTP 403)", True))
-    monkeypatch.setattr(ml.coleta, "baixar_pagina", lambda url: (HTML_ML.encode(), None, False))
+    urls = []
+    monkeypatch.setattr(ml.coleta, "baixar_pagina", lambda url: (urls.append(url), (HTML_ML.encode(), None, False))[1])
     fonte = ml.FonteMercadoLivre()
     res = fonte.buscar("sauvage dior")
-    assert len(res.achados) == 1 and not res.erro
+    # a página já vem filtrada pelo próprio ML (só loja oficial): todo card conta
+    assert urls == ["https://lista.mercadolivre.com.br/sauvage-dior_Loja_all"]
+    assert len(res.achados) == 2 and all(a.oficial for a in res.achados) and not res.erro
+    # na próxima busca nem tenta a API (sem login), vai direto na página
+    chamadas_api = []
+    monkeypatch.setattr(ml, "baixar_json", lambda *a, **k: (chamadas_api.append(1), (None, "403", True))[1])
+    fonte.buscar("sauvage dior")
+    assert chamadas_api == []
+
+
+def test_ml_patrocinado_e_estoque():
+    html = HTML_ML.replace("https://x/MLB-2", "https://click1.mercadolivre.com.br/mclics/clicks/external/MLB/count?a=1")
+    assert all("click1" not in a.url for a in ml.achados_do_html(html, so_oficial=False))
+    dados = {"results": [dict(API_ML["results"][0], available_quantity=0)]}
+    assert not ml.achados_da_api(dados)[0].disponivel
+
+
+def test_ml_login_sem_refresh_token_avisa(monkeypatch, tmp_path):
+    monkeypatch.setenv("ML_CLIENT_ID", "1")
+    monkeypatch.setenv("ML_CLIENT_SECRET", "2")
+    monkeypatch.setattr(ml, "_pedir_token", lambda campos: ({"access_token": "A", "expires_in": 21600}, 200))
+    ok, msg = ml.trocar_codigo("TG-1", caminho=tmp_path / "t.json")
+    assert ok and "refresh_token" in msg
+    assert not ml.tem_login(tmp_path / "t.json")
 
 
 # ============================================================
@@ -193,7 +230,7 @@ def test_vtex_varredura_pede_maior_desconto(monkeypatch):
     tarefas = fonte.tarefas_varredura()
     assert len(tarefas) == 2
     res = tarefas[1][1]()
-    assert len(res.achados) == 3
+    assert len(res.achados) == 2
     url, params = pedidos[-1]
     assert params["O"] == "OrderByBestDiscountDESC" and params["_from"] == 50 and params["ft"] == "perfume"
     assert vtex.FonteVTEX("www.x.com.br", varrer=False).tarefas_varredura() == []

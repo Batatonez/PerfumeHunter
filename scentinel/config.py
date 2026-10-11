@@ -37,6 +37,8 @@ class ConfigDescoberta:
     ml_min: float = 30  # frascos menores que isso (miniaturas) ficam de fora
     preco_min: float = 40
     desconto_min_rastrear: float = 10  # na varredura, só guarda perfume fora do catálogo com desconto >= isso
+    so_oficial: bool = True  # só posta loja oficial / vendido pela própria loja
+    max_everyone_por_dia: int = 2
     fontes: list = field(default_factory=list)
 
 
@@ -133,6 +135,8 @@ def carregar_config(caminho=ARQ_CONFIG):
         ml_min=float(d.get("ml_min", 30)),
         preco_min=float(d.get("preco_min", 40)),
         desconto_min_rastrear=float(d.get("desconto_min_rastrear", 10)),
+        so_oficial=bool(d.get("so_oficial", True)),
+        max_everyone_por_dia=int(d.get("max_everyone_por_dia", 2)),
         fontes=list(d.get("fontes", [])),
     )
 

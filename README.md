@@ -95,14 +95,14 @@ Agora ensine o SSH a usar essa chave com um apelido (`github-scentinel`). Isso s
 ```bash
 printf '\nHost github-scentinel\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/scentinel\n  IdentitiesOnly yes\n' >> ~/.ssh/config
 chmod 600 ~/.ssh/config
-ssh -T github-scentinel     # 1ª vez: digite yes. Tem que responder "Hi Batatonez/PerfumeHunter! You've successfully authenticated"
+ssh -T github-scentinel     # 1ª vez: digite yes. Tem que responder "Hi Batatonez/Scentinel! You've successfully authenticated"
 ```
 
 Baixe o projeto e rode o instalador. O instalador **não usa sudo**: ele só mexe dentro da pasta `~/scentinel`.
 
 ```bash
 cd ~
-git clone -b claude/new-session-uawklz github-scentinel:Batatonez/PerfumeHunter.git scentinel
+git clone -b claude/new-session-uawklz github-scentinel:Batatonez/Scentinel.git scentinel
 cd scentinel
 ./instalar.sh
 ```
@@ -346,7 +346,7 @@ Nas que derem ❌, coloque `ativo = false` no `config.toml`.
 A busca do ML só funciona com um app (grátis) logado; sem isso ele pede captcha. Só entra **loja oficial** (tem muito perfume falsificado lá).
 
 1. Entre em <https://developers.mercadolivre.com.br/devcenter> com sua conta do ML e clique em **Criar uma aplicação**.
-2. Preencha: nome `Scentinel`, descrição qualquer, e em **URI de redirect** coloque `https://www.google.com/`. Nos escopos/permissões, deixe só **leitura**. Salve.
+2. Preencha: nome `Scentinel`, finalidade **Pessoal**, e em **URIs de redirect** coloque `https://www.google.com/` (com a barra no final). Permissões: **Publicação e sincronização = só leitura**, o resto sem acesso; tópicos de notificação todos desmarcados. Em **fluxos de autenticação**, marque **Authorization Code** e **Refresh Token** (sem o Refresh Token o acesso vence em ~6 h e não renova); **PKCE desmarcado**. Salve.
 3. Copie o **App ID** e a **Secret Key** que aparecem e coloque no `.env`:
    ```
    ML_CLIENT_ID=o_app_id

@@ -83,8 +83,20 @@ def trocar_codigo(codigo, caminho=None):
     })
     if status == 200 and dados.get("access_token"):
         _salvar_token(dados, caminho)
+        if not dados.get("refresh_token"):
+            return True, ("login ok, MAS o ML não mandou refresh_token: em ~6 h o acesso vence. "
+                          "No app do devcenter, marque 'Refresh Token' / 'offline_access' e faça o login de novo.")
         return True, "login ok"
     return False, f"HTTP {status}: {dados.get('message') or dados.get('error') or dados}"
+
+
+def tem_login(caminho=None):
+    """Tem login salvo (com refresh_token)? Não depende de a renovação funcionar agora."""
+    caminho = Path(caminho or ARQ_TOKEN)
+    try:
+        return bool(json.loads(caminho.read_text()).get("refresh_token"))
+    except (OSError, ValueError):
+        return False
 
 
 def token_valido(caminho=None):
@@ -138,7 +150,7 @@ def achados_da_api(dados, so_oficial=True):
             loja="Mercado Livre",
             marca=_marca_dos_atributos(r),
             preco_de=preco_de if preco_de and preco_de > preco else None,
-            disponivel=(r.get("available_quantity") or 1) > 0,
+            disponivel=r.get("available_quantity") is None or r["available_quantity"] > 0,
             oficial=oficial,
             imagem=foto,
             chave=f"ml:{r['catalog_product_id']}" if r.get("catalog_product_id") else None,
@@ -150,7 +162,8 @@ def _valor(elemento):
     return coleta._valor_andes(elemento) if elemento else None
 
 
-def achados_do_html(html, so_oficial=True):
+def achados_do_html(html, so_oficial=True, ja_filtrado=False):
+    """ja_filtrado: a URL já pediu só loja oficial (_Loja_all), então todo card é oficial."""
     sopa = BeautifulSoup(html, coleta.PARSER)
     cards = sopa.select("div.poly-card") or sopa.select("li.ui-search-layout__item")
     saida = []
@@ -159,6 +172,9 @@ def achados_do_html(html, so_oficial=True):
              or card.select_one("a.ui-search-link") or card.select_one("a[href]"))
         if not a or not a.get("href"):
             continue
+        href = a["href"]
+        if "click1." in href or "/mclics/" in href:  # anúncio patrocinado: link de rastreio, sem id estável
+            continue
         titulo = a.get_text(" ", strip=True) or (card.select_one("h2") or a).get_text(" ", strip=True)
         atual = (card.select_one(".poly-price__current .andes-money-amount")
                  or card.select_one(".andes-money-amount:not(.andes-money-amount--previous)"))
@@ -166,7 +182,7 @@ def achados_do_html(html, so_oficial=True):
         if not preco:
             continue
         texto = card.get_text(" ", strip=True)
-        oficial = bool(re.search(r"loja oficial", texto, re.IGNORECASE))
+        oficial = ja_filtrado or bool(re.search(r"loja oficial", texto, re.IGNORECASE))
         if so_oficial and not oficial:
             continue
         if re.search(r"\busado\b|recondicionado", texto, re.IGNORECASE):
@@ -176,7 +192,7 @@ def achados_do_html(html, so_oficial=True):
         foto = (img.get("data-src") or img.get("src")) if img else None
         saida.append(Achado(
             titulo=titulo,
-            url=a["href"].split("#")[0].split("?")[0],
+            url=href.split("#")[0].split("?")[0],
             preco=preco,
             loja="Mercado Livre",
             preco_de=preco_de if preco_de and preco_de > preco else None,
@@ -205,7 +221,7 @@ class FonteMercadoLivre:
         self.paginas = max(1, int(paginas))
         self._token = None
         self._token_ate = 0
-        self._api_fora = False
+        self._api_fora_ate = 0  # sem login a API não responde: tenta a página por um tempo
 
     def _pegar_token(self):
         token = token_valido()
@@ -244,10 +260,11 @@ class FonteMercadoLivre:
 
     def _html(self, termo):
         slug = re.sub(r"[^a-z0-9]+", "-", termo.lower()).strip("-")
-        html, erro, bloqueado = coleta.baixar_pagina(f"https://lista.mercadolivre.com.br/{slug}")
+        sufixo = "_Loja_all" if self.so_oficial else ""  # filtro de loja oficial do próprio ML
+        html, erro, bloqueado = coleta.baixar_pagina(f"https://lista.mercadolivre.com.br/{slug}{sufixo}")
         if erro:
             return None, erro, bloqueado
-        return achados_do_html(html, self.so_oficial), None, False
+        return achados_do_html(html, self.so_oficial, ja_filtrado=self.so_oficial), None, False
 
     def _pagina(self, termo, pagina):
         if pagina == 0:
@@ -262,13 +279,15 @@ class FonteMercadoLivre:
                 for t in self.termos_varredura for p in range(self.paginas)]
 
     def buscar(self, termo):
-        if self.modo in ("auto", "api") and not self._api_fora:
+        if self.modo in ("auto", "api") and time.time() >= self._api_fora_ate:
             achados, erro = self._api(termo)
             if not erro:
                 return ResultadoBusca(achados=achados)
-            if self.modo == "api" or token_valido():
-                return ResultadoBusca(erro=f"api: {erro}")
-            self._api_fora = True  # sem login: não insiste na API nesta execução; tenta a página
+            restrito = "403" in erro or "401" in erro
+            if self.modo == "api" or (tem_login() and not restrito):
+                return ResultadoBusca(erro=f"api: {erro}")  # falha passageira: tenta a API de novo depois
+            if not tem_login():
+                self._api_fora_ate = time.time() + 3600  # sem login: página por 1 h, depois tenta a API de novo
         achados, erro, bloqueado = self._html(termo)
         if erro:
             return ResultadoBusca(erro=f"página: {erro}", bloqueado=bloqueado)

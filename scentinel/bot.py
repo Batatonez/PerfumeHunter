@@ -435,6 +435,9 @@ def registrar_comandos(tree):
         if not bot.descoberta:
             await interaction.response.send_message("A busca automática está desligada no config.toml.")
             return
+        if bot.descoberta.trava_varredura.locked():
+            await interaction.response.send_message("🧹 Já tem uma varredura rodando agora. Os posts chegam no canal.")
+            return
         await interaction.response.defer(thinking=True)
         linhas = await bot.descoberta.varredura(forcar=True)
         postados = sum(1 for linha in linhas if linha.startswith("🔥"))

@@ -123,3 +123,13 @@ def test_montar_mencao():
 
     texto, permitidas = montar_mencao(None, 42)
     assert texto is None and not permitidas.everyone and not permitidas.users
+
+
+
+def test_comando_testar_usa_o_modulo_lojas():
+    """A função do comando 'lojas' não pode esconder o módulo lojas (quebrava o 'testar')."""
+    import types
+
+    import scentinel.__main__ as cli
+
+    assert isinstance(cli.lojas, types.ModuleType) and callable(cli.testar_lojas)

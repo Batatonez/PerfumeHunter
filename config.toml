@@ -123,6 +123,10 @@ ml_min = 30
 preco_min = 40
 # Perfume fora do catálogo só é guardado se a loja anunciar pelo menos esse desconto (%).
 desconto_min_rastrear = 10
+# Confiança: só posta loja oficial (ML) / vendido pela própria loja (VTEX, sem parceiros do marketplace).
+so_oficial = true
+# No máximo quantos @everyone por dia (depois disso, o 💎 marca só o dono).
+max_everyone_por_dia = 2
 
 # Lojas onde o bot procura. Rode `.venv/bin/python -m scentinel lojas` no notebook pra ver quais
 # funcionam de verdade, e troque `ativo = false` nas que não funcionarem.

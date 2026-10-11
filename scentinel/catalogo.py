@@ -33,6 +33,13 @@ _LIXO = [
     r"\bcreme\b", r"\bpo\b", r"\bbalm\b", r"\bpos barba\b", r"\bafter ?shave\b",
     r"\bcontratipo\b", r"\binspirad[oa]\b", r"\binspiracao\b", r"\bsimilar\b", r"\breplica\b",
     r"\b1a linha\b", r"\bprimeira linha\b", r"\bvazio\b", r"\bcapa\b", r"\bcaixa vazia\b",
+    # não é o frasco de perfume pra pele
+    r"\brefil\b", r"\brefill\b", r"\bcapilar\b", r"\bcabelo\b", r"\bhair\b", r"\bmist\b",
+    r"\bambiente\b", r"\bhome ?spray\b", r"\bdifusor\b", r"\baromatizador\b", r"\bpet\b", r"\bcaes\b",
+    r"\bcachorro\b", r"\bgato\b",
+    # jeitos de dizer "contratipo"
+    r"\breferencia olfativa\b", r"\breferencia\b", r"\bversao\b", r"\bdupe\b", r"\bclone\b",
+    r"\balternativa\b", r"\bequivalente\b", r"\bsimilaridade\b",
 ]
 _RE_LIXO = re.compile("|".join(_LIXO))
 
@@ -292,7 +299,19 @@ def nome_limpo(titulo, limite=70):
 
 def chave_generica(titulo, ml, marca=None):
     """Chave pra reconhecer o mesmo produto em lojas diferentes sem catálogo:
-    palavras do nome (normalizadas, sem as genéricas, em ordem) + tamanho."""
+    palavras do nome (normalizadas, sem as genéricas, em ordem) + público + tamanho.
+    Título genérico demais (menos de 2 palavras que identificam) não ganha chave."""
+    if not ml:
+        return None
+    from scentinel.busca import _CODIGOS
+
     texto = normalizar(nome_limpo(f"{titulo} {marca or ''}"))
     palavras = sorted(set(p for p in texto.split() if len(p) > 1 or p.isdigit()))
-    return f"t:{' '.join(palavras)}|{ml:g}" if palavras and ml else None
+    distintivas = [p for p in palavras if p not in _CODIGOS]
+    if len(distintivas) < 2:
+        return None
+    # Versão feminina vira outro produto ("212 VIP Feminino" != "212 VIP Masculino"). Título sem
+    # gênero fica junto com o masculino: linha que existe nas duas versões sempre diz "Feminino".
+    t = texto_titulo(titulo)
+    publico = "f" if _FEM.search(t) and not _MASC.search(t) else "m"
+    return f"t:{' '.join(palavras)}|{publico}|{ml:g}"

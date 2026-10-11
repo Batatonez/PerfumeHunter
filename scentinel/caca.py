@@ -55,7 +55,8 @@ class Cacador:
         self.baixar = baixar
         self.dormir = dormir
         self.relogio = relogio
-        self.lock = asyncio.Lock()  # uma requisição por vez, sempre
+        self.lock = asyncio.Lock()  # estado dos anúncios: um processamento por vez
+        self._rede = asyncio.Lock()  # rede: uma requisição por vez, sempre (todos os loops)
         self._ultimo_request = None
         self.catalogo = {}  # id -> catalogo.ItemCatalogo (preenchido pela busca automática)
 
@@ -65,16 +66,17 @@ class Cacador:
 
     async def na_vez(self, funcao, *args):
         """Roda uma requisição (função síncrona) numa thread, respeitando o delay
-        aleatório desde a requisição anterior. Vale pra página, busca e API."""
-        if self._ultimo_request is not None:
-            alvo = random.uniform(self.cfg.delay_min_s, self.cfg.delay_max_s)
-            espera = alvo - (time.monotonic() - self._ultimo_request)
-            if espera > 0:
-                await self.dormir(espera)
-        try:
-            return await asyncio.to_thread(funcao, *args)
-        finally:
-            self._ultimo_request = time.monotonic()
+        aleatório desde a requisição anterior. Vale pra página, busca e API, de todos os loops."""
+        async with self._rede:
+            if self._ultimo_request is not None:
+                alvo = random.uniform(self.cfg.delay_min_s, self.cfg.delay_max_s)
+                espera = alvo - (time.monotonic() - self._ultimo_request)
+                if espera > 0:
+                    await self.dormir(espera)
+            try:
+                return await asyncio.to_thread(funcao, *args)
+            finally:
+                self._ultimo_request = time.monotonic()
 
     async def _baixar(self, anuncio):
         return await self.na_vez(self.baixar, anuncio["url"], anuncio["seletor"])
@@ -91,23 +93,49 @@ class Cacador:
         return self.catalogo.get(anuncio.get("catalogo_id")) if anuncio.get("catalogo_id") else None
 
     def _refs_descoberta(self, anuncio, preco, quando):
-        """(ref_catalogo, ref_mercado) pra um anúncio da busca automática.
-        Mercado = 2ª oferta mais barata (contando esta) do mesmo perfume e tamanho nas últimas 48 h:
-        quem está bem abaixo da 2ª mais barata está em promo de verdade, e vendedor que
-        cobra o dobro não infla a referência. Com dados de mercado, o preço estimado do
-        catálogo vira só um teto folgado (x1,25), porque ele é uma estimativa."""
-        item = self._item(anuncio)
+        """(ref_catalogo, ref_mercado, n_lojas) pra um anúncio da busca automática.
+        Mercado = a OUTRA loja oficial mais barata pro mesmo perfume e tamanho (últimas 48 h),
+        só quando pelo menos 2 outras lojas têm o produto: com uma só, um vendedor caro
+        bastaria pra inventar desconto. Vários vendedores da mesma loja contam como uma loja.
+        O preço do catálogo é estimativa: se o mercado confirma que ele está baixo, sobe até x1,25."""
         if (anuncio.get("origem") or "manual") != "descoberta" or not anuncio.get("catalogo_id") or not anuncio.get("ml"):
-            return None, None
-        outros = db.ofertas_recentes_do_item(
-            self.con, anuncio["catalogo_id"], anuncio["ml"], quando - timedelta(hours=48), exceto_id=anuncio["id"]
+            return None, None, 0
+        item = self._item(anuncio)
+        lojas = db.menores_por_loja(
+            self.con, anuncio["catalogo_id"], anuncio["ml"], quando - timedelta(hours=48),
+            exceto_id=anuncio["id"], exceto_loja=anuncio.get("loja"), so_oficial=True,
         )
-        precos = sorted([o["preco"] for o in outros] + [preco])
-        ref_mercado = precos[1] if len(precos) >= 2 else None
+        ref_mercado = min(lojas.values()) if len(lojas) >= 2 else None
         ref_catalogo = item.referencia_para(anuncio["ml"]) if item else None
-        if ref_catalogo and ref_mercado:
-            ref_catalogo = round(ref_catalogo * 1.25, 2)
-        return ref_catalogo, ref_mercado
+        if ref_catalogo and ref_mercado and ref_mercado > ref_catalogo:
+            ref_catalogo = min(round(ref_catalogo * 1.25, 2), ref_mercado)
+        return ref_catalogo, ref_mercado, len(lojas)
+
+    def _limitar_nivel(self, avaliacao, nivel_max):
+        """Referência fraca não pode virar nível alto (nem marcar ninguém)."""
+        if avaliacao.nivel and avaliacao.nivel.nivel > nivel_max:
+            permitidos = [n for n in self.cfg.niveis if n.nivel <= nivel_max]
+            avaliacao.nivel = max(permitidos, key=lambda n: n.nivel) if permitidos else None
+        return avaliacao
+
+    def _avaliar_preco(self, anuncio, leitura, quando):
+        ref_catalogo, ref_mercado, _n = self._refs_descoberta(anuncio, leitura.preco, quando)
+        historico = self._historico(anuncio["id"], quando)
+        avaliacao = promo.avaliar(
+            leitura.preco, leitura.preco_de, historico, self.cfg.niveis, self.cfg.ref_min_leituras,
+            ref_catalogo, ref_mercado,
+        )
+        if (anuncio.get("origem") or "manual") == "descoberta":
+            tem_historico = len(historico) >= self.cfg.ref_min_leituras
+            if avaliacao.fonte == promo.FONTE_LOJA:
+                # só o "de R$" da própria loja: ninguém confirmou -> no máximo nível 3, sem marcar
+                avaliacao = self._limitar_nivel(avaliacao, 3)
+            elif not tem_historico:
+                # mercado/catálogo sem histórico do anúncio: pode marcar o dono, @everyone não
+                nivel_everyone = min((n.nivel for n in self.cfg.niveis if n.everyone), default=None)
+                if nivel_everyone:
+                    avaliacao = self._limitar_nivel(avaliacao, nivel_everyone - 1)
+        return avaliacao
 
     def _oferta(self, anuncio, leitura, quando, avaliacao, bateu_alvo=False):
         item = self._item(anuncio)
@@ -133,10 +161,7 @@ class Cacador:
         )
 
     def _avaliar(self, anuncio, leitura, quando):
-        avaliacao = promo.avaliar(
-            leitura.preco, leitura.preco_de, self._historico(anuncio["id"], quando),
-            self.cfg.niveis, self.cfg.ref_min_leituras, *self._refs_descoberta(anuncio, leitura.preco, quando),
-        )
+        avaliacao = self._avaliar_preco(anuncio, leitura, quando)
         estado = promo.Estado(anuncio["nivel_avisado"], bool(anuncio["alvo_avisado"]))
         nivel_minimo = self.cfg.nivel_minimo_para(anuncio["perfume_nome"])
         if (anuncio.get("origem") or "manual") == "descoberta":
@@ -197,12 +222,21 @@ class Cacador:
             anuncio, res.leitura, agora, avisar=avisar, rebaixar=lambda: self._baixar(anuncio)
         )
 
-    async def processar_leitura(self, anuncio, leitura, agora, avisar=True, rebaixar=None, filtro=None):
+    def _everyone_esgotado(self, agora):
+        nivel_everyone = min((n.nivel for n in self.cfg.niveis if n.everyone), default=None)
+        if not nivel_everyone:
+            return False
+        feitos = db.alertas_de_nivel_desde(self.con, nivel_everyone, agora - timedelta(hours=24))
+        return feitos >= self.cfg.descoberta.max_everyone_por_dia
+
+    async def processar_leitura(self, anuncio, leitura, agora, avisar=True, rebaixar=None, filtro=None,
+                                registrar=True):
         """Registra uma leitura e (se avisar=True) decide e manda o alerta.
         Serve pros anúncios cadastrados (página baixada) e pros achados na busca automática.
         rebaixar: função async que lê o preço de novo (sanidade); devolve um coleta.Resultado.
         filtro: função async (anuncio, oferta) -> motivo pra NÃO avisar agora (ou None).
-        Se o filtro segurar, o estado não muda: o aviso pode sair numa rodada seguinte."""
+        Se o filtro segurar, o estado não muda: o aviso pode sair numa rodada seguinte.
+        registrar=False: reavalia sem gravar outra leitura igual (o preço não mudou)."""
         nome = f"{anuncio['perfume_nome']} @ {anuncio['loja']}"
         avaliacao, decisao = self._avaliar(anuncio, leitura, agora)
 
@@ -226,7 +260,8 @@ class Cacador:
                 )
 
         menor_antes = db.menor_preco(self.con, anuncio["id"])
-        db.registrar_preco(self.con, anuncio["id"], leitura, agora)
+        if registrar:
+            db.registrar_preco(self.con, anuncio["id"], leitura, agora)
         oferta = self._oferta(anuncio, leitura, agora, avaliacao, bateu_alvo=decisao.alvo)
         oferta.recorde = bool(menor_antes and leitura.preco < menor_antes and not leitura.esgotado)
 
@@ -237,6 +272,8 @@ class Cacador:
             emoji = f"⏭️ ({segurado})"
         elif avisar and decisao.avisar:
             quem = promo.mencao(decisao.nivel)
+            if quem == promo.MENCAO_EVERYONE and self._everyone_esgotado(agora):
+                quem = promo.MENCAO_DONO  # teto diário de @everyone: o resto do dia marca só o dono
             ok = await self.enviar_alerta(oferta, quem) if self.enviar_alerta else False
             if ok:
                 novo = decisao.novo_estado
@@ -323,10 +360,7 @@ class Cacador:
         leitura = coleta.Leitura(
             linha["preco"], linha["metodo"], bool(linha["esgotado"]), linha["preco_de"], linha["preco_pix"]
         )
-        avaliacao = promo.avaliar(
-            leitura.preco, leitura.preco_de, self._historico(anuncio["id"], quando),
-            self.cfg.niveis, self.cfg.ref_min_leituras, *self._refs_descoberta(anuncio, leitura.preco, quando),
-        )
+        avaliacao = self._avaliar_preco(anuncio, leitura, quando)
         bateu = bool(anuncio["alvo"] and leitura.preco <= anuncio["alvo"])
         return self._oferta(anuncio, leitura, quando, avaliacao, bateu_alvo=bateu)
 

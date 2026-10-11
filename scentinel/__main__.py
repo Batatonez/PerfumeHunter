@@ -54,7 +54,7 @@ def testar(url, seletor=None, salvar=False):
     return 0
 
 
-def lojas(termo, so=None):
+def testar_lojas(termo, so=None):
     """Testa a busca automática em cada loja do config.toml (inclusive as desligadas)."""
     import random
     import time
@@ -159,7 +159,7 @@ def main(argv=None):
     if args.comando == "testar":
         return testar(args.url, args.seletor, args.salvar)
     if args.comando == "lojas":
-        return lojas(args.termo, args.so)
+        return testar_lojas(args.termo, args.so)
     if args.comando == "ml-login":
         return ml_login()
 

@@ -8,6 +8,7 @@ import pytest
 from scentinel import config, db
 from scentinel.caca import Cacador
 from scentinel.catalogo import ItemCatalogo
+from scentinel.coleta import Leitura
 from scentinel.descoberta import ERROS_PRA_PAUSAR, Descoberta
 from scentinel.fontes import Achado, ResultadoBusca
 
@@ -42,6 +43,7 @@ class FonteFalsa:
 
 
 def achado(titulo, preco, loja, url, **kw):
+    kw.setdefault("oficial", True)  # loja confiável (o padrão do bot é só postar loja oficial)
     return Achado(titulo=titulo, url=url, preco=preco, loja=loja, **kw)
 
 
@@ -188,8 +190,9 @@ def test_locate_acha_os_descobertos(amb):
     amb.b.programar("sauvage dior edp", achado("Sauvage Dior EDP 100ml", 760, "Loja B", "https://b/s"))
     rodar(amb.desc.rodada())
     r = rodar(amb.cac.locate("sauvage", marca="dior"))
-    # 580 contra 760 na 2ª loja mais barata = 24% abaixo
-    assert r.melhor.avaliacao.fonte == "mercado" and round(r.melhor.avaliacao.pct) == 24
+    # só 1 outra loja: não dá pra confiar no "mercado" (um vendedor caro inventaria desconto);
+    # fica com o preço normal do catálogo (850): 580 = 32% abaixo
+    assert r.melhor.avaliacao.fonte == "catalogo" and round(r.melhor.avaliacao.pct) == 32
     assert r.melhor.loja == "Loja A" and r.em_promo
     assert [o.loja for o in r.outros] == ["Loja B"]
 
@@ -205,7 +208,7 @@ def pagina(*achados):
 
 def test_varredura_posta_perfume_fora_do_catalogo(amb):
     amb.a.varredura = [pagina(
-        achado("Perfume Queening Le Parfum Feminino EDP 100ml", 199.9, "Loja A", "https://a/q",
+        achado("Perfume Lumina Queening Le Parfum Feminino EDP 100ml", 199.9, "Loja A", "https://a/q",
                preco_de=399.9, imagem="https://img/q.jpg", oficial=True),
         achado("Hidratante Corporal Perfumado 400ml", 30, "Loja A", "https://a/h", preco_de=60),
         achado("Kit Perfume Good Girl + Loção", 300, "Loja A", "https://a/kit", preco_de=600),
@@ -214,10 +217,12 @@ def test_varredura_posta_perfume_fora_do_catalogo(amb):
     )]
     rodar(amb.desc.varredura())
     assert len(amb.alertas) == 1
-    oferta, _ = amb.alertas[0]
+    oferta, mencao = amb.alertas[0]
     assert oferta.url == "https://a/q" and round(oferta.avaliacao.pct) == 50
     assert oferta.avaliacao.fonte == "loja" and oferta.preco_de == 399.9 and oferta.imagem == "https://img/q.jpg"
-    assert oferta.perfume == "Queening Le Parfum EDP"
+    # só o "de R$" da própria loja confirma os 50%: nível limitado a 3 (sem marcar ninguém)
+    assert oferta.avaliacao.nivel.nivel == 3 and mencao is None
+    assert oferta.perfume == "Lumina Queening Le Parfum EDP"
     # o resto nem virou anúncio (não é perfume, é kit, é miniatura, ou está a preço cheio)
     for url in ("https://a/h", "https://a/kit", "https://a/mini", "https://a/y"):
         assert db.anuncio_por_url(amb.con, url) is None
@@ -226,9 +231,9 @@ def test_varredura_posta_perfume_fora_do_catalogo(amb):
 def test_varredura_posta_maiores_descontos_primeiro(amb):
     amb.cfg.descoberta.max_alertas_por_hora = 2
     amb.a.varredura = [pagina(
-        achado("Perfume Um EDP 100ml", 380, "Loja A", "https://a/1", preco_de=500),    # 24%
-        achado("Perfume Dois EDP 100ml", 200, "Loja A", "https://a/2", preco_de=500),  # 60%
-        achado("Perfume Tres EDP 100ml", 300, "Loja A", "https://a/3", preco_de=500),  # 40%
+        achado("Perfume Lumina Um EDP 100ml", 380, "Loja A", "https://a/1", preco_de=500),    # 24%
+        achado("Perfume Lumina Dois EDP 100ml", 200, "Loja A", "https://a/2", preco_de=500),  # 60%
+        achado("Perfume Lumina Tres EDP 100ml", 300, "Loja A", "https://a/3", preco_de=500),  # 40%
     )]
     amb.cfg.sanidade_queda_pct = 99  # sem rechecagem nesse teste
     rodar(amb.desc.varredura())
@@ -247,7 +252,7 @@ def test_varredura_compara_entre_lojas(amb):
 
 
 def test_varredura_respeita_intervalo_e_nao_repete(amb):
-    amb.a.varredura = [pagina(achado("Perfume Um EDP 100ml", 200, "Loja A", "https://a/1", preco_de=500))]
+    amb.a.varredura = [pagina(achado("Perfume Lumina Um EDP 100ml", 200, "Loja A", "https://a/1", preco_de=500))]
     amb.cfg.sanidade_queda_pct = 99
     rodar(amb.desc.varredura())
     assert rodar(amb.desc.varredura()) == []  # antes de 1 h não varre de novo
@@ -271,11 +276,17 @@ def test_varredura_usa_catalogo_quando_reconhece(amb):
 # ============================================================
 
 def test_busca_ao_vivo(amb):
-    amb.a.programar("queening", achado("Queening EDP Feminino 100ml", 210, "Loja A", "https://a/q", preco_de=300),
+    amb.a.programar("queening", achado("Lumina Queening EDP Feminino 100ml", 210, "Loja A", "https://a/q", preco_de=300),
                     achado("Body Splash Queening 200ml", 50, "Loja A", "https://a/bs"))
-    amb.b.programar("queening", achado("Perfume Queening Eau de Parfum 100ml", 189.9, "Loja B", "https://b/q"),
+    amb.b.programar("queening", achado("Perfume Lumina Queening Eau de Parfum 100ml", 189.9, "Loja B", "https://b/q"),
                     achado("Outro Perfume Qualquer 100ml", 99, "Loja B", "https://b/x"))
-    res = rodar(amb.desc.buscar_ao_vivo("queening"))
+
+    async def buscar_e_esperar_gravacao():
+        r = await amb.desc.buscar_ao_vivo("queening")
+        await asyncio.gather(*amb.desc._em_segundo_plano)  # a gravação roda depois da resposta
+        return r
+
+    res = rodar(buscar_e_esperar_gravacao())
     assert [a.url for a, _, _ in res.ofertas] == ["https://b/q", "https://a/q"]  # mais barato primeiro, sem lixo
     assert res.lojas_ok == ["Loja A", "Loja B"]
     assert amb.alertas == []  # pesquisa não posta no canal
@@ -289,3 +300,90 @@ def test_busca_ao_vivo_com_marca_e_loja_fora(amb):
     res = rodar(amb.desc.buscar_ao_vivo("sauvage", "dior"))
     assert [a.url for a, _, _ in res.ofertas] == ["https://a/s"]
     assert res.lojas_falha == ["Loja B"]
+
+
+# ============================================================
+# Cenários da revisão (não podem voltar)
+# ============================================================
+
+def test_vendedor_caro_sozinho_nao_infla_a_referencia(amb):
+    # Khamrah: catálogo 280. A a 170 sozinho e um vendedor a 554 em B. Antes isso virava 💎 com @everyone.
+    amb.b.varredura = [pagina(achado("Lattafa Khamrah EDP 100ml", 554, "Loja B", "https://b/k"))]
+    amb.a.varredura = [pagina(achado("Lattafa Khamrah EDP 100ml", 170, "Loja A", "https://a/k"))]
+    rodar(amb.desc.varredura())
+    oferta, mencao = [x for x in amb.alertas if x[0].url == "https://a/k"][0]
+    assert oferta.avaliacao.referencia == 280 and oferta.avaliacao.fonte == "catalogo"
+    assert mencao != "everyone"  # sem histórico, @everyone não sai
+
+
+def test_lote_posta_so_o_mais_barato_mesmo_com_de_inflado(amb):
+    amb.a.varredura = [pagina(
+        achado("Perfume Lumina Aurora EDP 100ml", 300, "Loja A", "https://a/caro", preco_de=900),   # 67% "de mentira"
+        achado("Perfume Lumina Aurora EDP 100ml", 250, "Loja A", "https://a/barato", preco_de=400),  # 37%
+    )]
+    amb.cfg.sanidade_queda_pct = 99
+    rodar(amb.desc.varredura())
+    assert [o.url for o, _ in amb.alertas] == ["https://a/barato"]
+
+
+def test_nao_reposta_o_mesmo_preco_quando_o_nivel_reseta(amb):
+    amb.cfg.sanidade_queda_pct = 99
+    amb.a.varredura = [pagina(achado("Perfume Lumina Um EDP 100ml", 200, "Loja A", "https://a/1", preco_de=500))]
+    rodar(amb.desc.varredura())
+    assert len(amb.alertas) == 1
+    # a loja tira o "de" (nível cai e o estado zera)...
+    amb.relogio.agora += timedelta(hours=2)
+    amb.a.varredura = [pagina(achado("Perfume Lumina Um EDP 100ml", 200, "Loja A", "https://a/1"))]
+    rodar(amb.desc.varredura())
+    # ...e põe de volta: mesmo preço, não reposta
+    amb.relogio.agora += timedelta(hours=2)
+    amb.a.varredura = [pagina(achado("Perfume Lumina Um EDP 100ml", 200, "Loja A", "https://a/1", preco_de=500))]
+    rodar(amb.desc.varredura())
+    assert len(amb.alertas) == 1
+
+
+def test_everyone_so_com_historico_e_no_maximo_2_por_dia(amb):
+    amb.cfg.sanidade_queda_pct = 99
+    from scentinel import promo
+
+    # 3 perfumes DIFERENTES, cada um com 5 leituras de histórico a preço cheio (300) e agora a 120 (60% OFF)
+    urls = []
+    for i, loja in enumerate(("A1", "A2", "A3")):
+        url = f"https://{loja}/p{i}"
+        urls.append(url)
+        anuncio = db.salvar_anuncio_descoberto(amb.con, db.criar_perfume(amb.con, f"P{i}", f"p{i}")["id"],
+                                               loja, url, 100, None, f"t:perfume {i}|m|100", "vtex:a", f"Perfume {i} EDP 100ml", True)
+        for h in range(5):
+            db.registrar_preco(amb.con, anuncio["id"], Leitura(300, "x"), amb.relogio.agora - timedelta(hours=10 + h))
+    mencoes = []
+    for url in urls:
+        anuncio = db.anuncio_por_url(amb.con, url)
+        rodar(amb.cac.processar_leitura(anuncio, Leitura(120, "x"), amb.relogio.agora))
+        mencoes.append(amb.alertas[-1][1])
+    assert mencoes == [promo.MENCAO_EVERYONE, promo.MENCAO_EVERYONE, promo.MENCAO_DONO]
+
+
+def test_loja_nao_oficial_nao_entra(amb):
+    amb.a.varredura = [pagina(achado("Perfume Lumina Um EDP 100ml", 200, "Loja A", "https://a/1",
+                                     preco_de=500, oficial=False))]
+    rodar(amb.desc.varredura())
+    assert amb.alertas == [] and db.anuncio_por_url(amb.con, "https://a/1") is None
+
+
+def test_busca_automatica_nao_mexe_em_anuncio_do_add(amb):
+    amb.a.programar("sauvage dior edp", 600.0)
+    anuncio_manual, _ = rodar(amb.cac.adicionar("https://a/s", "Sauvage EDP", ml=100, alvo=500))
+    amb.a.varredura = [pagina(achado("Sauvage Dior Eau de Parfum 60ml", 400, "Loja A", "https://a/s"))]
+    rodar(amb.desc.varredura())
+    depois = db.anuncio_por_url(amb.con, "https://a/s")
+    assert depois["origem"] == "manual" and depois["ml"] == 100 and depois["alvo"] == 500
+
+
+def test_contratipo_e_refil_nao_entram(amb):
+    amb.a.varredura = [pagina(
+        achado("Perfume Referência Olfativa Sauvage Dior 100ml", 90, "Loja A", "https://a/ref", preco_de=300),
+        achado("Refil Malbec Desodorante Colônia 100ml", 90, "Loja A", "https://a/refil", preco_de=200),
+        achado("Sauvage Dior Eau de Parfum 100ml", 150, "Loja A", "https://a/barato-demais"),  # < 35% do normal
+    )]
+    rodar(amb.desc.varredura())
+    assert amb.alertas == []

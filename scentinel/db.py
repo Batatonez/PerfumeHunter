@@ -350,6 +350,8 @@ def registrar_busca(con, item_id, fonte, quando, erro=None, achados=0):
 def salvar_anuncio_descoberto(con, perfume_id, loja, url, ml, alvo, catalogo_id, fonte, titulo, oficial, imagem=None):
     """Cria ou atualiza (pela URL) um anúncio achado pela busca automática."""
     existente = anuncio_por_url(con, url)
+    if existente and (existente.get("origem") or "manual") == "manual":
+        return None  # cadastrado com /add: a busca automática não mexe
     if existente:
         con.execute(
             "UPDATE anuncios SET perfume_id = ?, loja = ?, ml = ?, alvo = ?, catalogo_id = ?, fonte = ?,"
@@ -367,13 +369,15 @@ def salvar_anuncio_descoberto(con, perfume_id, loja, url, ml, alvo, catalogo_id,
     return anuncio_por_id(con, cur.lastrowid)
 
 
-def ofertas_recentes_do_item(con, catalogo_id, ml, desde, exceto_id=None):
+def ofertas_recentes_do_item(con, catalogo_id, ml, desde, exceto_id=None, so_oficial=False):
     """Último preço (sem esgotado) de cada anúncio do mesmo item e tamanho, lido desde `desde`."""
     sql = """
-    SELECT a.id, a.loja, p.preco, p.quando FROM anuncios a
+    SELECT a.id, a.loja, a.oficial, p.preco, p.quando FROM anuncios a
     JOIN precos p ON p.id = (SELECT id FROM precos WHERE anuncio_id = a.id ORDER BY quando DESC, id DESC LIMIT 1)
     WHERE a.catalogo_id = ? AND a.ml = ? AND a.ativo = 1 AND p.esgotado = 0 AND p.quando >= ?
     """
+    if so_oficial:
+        sql += " AND a.oficial = 1"
     args = [catalogo_id, ml, para_texto(desde)]
     if exceto_id is not None:
         sql += " AND a.id != ?"
@@ -393,3 +397,29 @@ def anuncios_descobertos_recentes(con, desde):
 
 def alertas_desde(con, desde):
     return con.execute("SELECT COUNT(*) FROM alertas WHERE quando >= ?", (para_texto(desde),)).fetchone()[0]
+
+
+def menores_por_loja(con, catalogo_id, ml, desde, exceto_id=None, exceto_loja=None, so_oficial=True):
+    """Menor preço atual de cada OUTRA loja pro mesmo produto e tamanho (sem esgotado, desde `desde`).
+    Vários vendedores da mesma loja contam como uma loja só."""
+    linhas = ofertas_recentes_do_item(con, catalogo_id, ml, desde, exceto_id=exceto_id, so_oficial=so_oficial)
+    menores = {}
+    for o in linhas:
+        if exceto_loja and o["loja"] == exceto_loja:
+            continue
+        if o["loja"] not in menores or o["preco"] < menores[o["loja"]]:
+            menores[o["loja"]] = o["preco"]
+    return menores
+
+
+def ultimo_alerta(con, anuncio_id, desde):
+    return _dict(con.execute(
+        "SELECT * FROM alertas WHERE anuncio_id = ? AND quando >= ? ORDER BY quando DESC, id DESC LIMIT 1",
+        (anuncio_id, para_texto(desde)),
+    ).fetchone())
+
+
+def alertas_de_nivel_desde(con, nivel_minimo, desde):
+    return con.execute(
+        "SELECT COUNT(*) FROM alertas WHERE nivel >= ? AND quando >= ?", (nivel_minimo, para_texto(desde))
+    ).fetchone()[0]
