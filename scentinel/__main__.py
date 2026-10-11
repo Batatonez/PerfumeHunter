@@ -1,9 +1,9 @@
 """Linha de comando.
 
-  python -m cacador                      -> liga o bot (é o que o systemd roda)
-  python -m cacador testar URL           -> mostra o preço que ele acha nessa página
-  python -m cacador testar URL --seletor ".preco"   -> testa com seletor CSS
-  python -m cacador testar URL --salvar  -> também salva o HTML em tests/fixtures/reais/
+  python -m scentinel                      -> liga o bot (é o que o systemd roda)
+  python -m scentinel testar URL           -> mostra o preço que ele acha nessa página
+  python -m scentinel testar URL --seletor ".preco"   -> testa com seletor CSS
+  python -m scentinel testar URL --salvar  -> também salva o HTML em tests/fixtures/reais/
 """
 
 import argparse
@@ -12,8 +12,8 @@ import sys
 from datetime import datetime
 from urllib.parse import urlparse
 
-from cacador import coleta, config, lojas
-from cacador.formato import formatar_reais
+from scentinel import coleta, config, lojas
+from scentinel.formato import formatar_reais
 
 
 def testar(url, seletor=None, salvar=False):
@@ -52,7 +52,7 @@ def testar(url, seletor=None, salvar=False):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(prog="python -m cacador", description="Caçador de Perfumes 🧴")
+    parser = argparse.ArgumentParser(prog="python -m scentinel", description="Scentinel 🐈‍⬛ o gato de guarda dos perfumes")
     sub = parser.add_subparsers(dest="comando")
     p_testar = sub.add_parser("testar", help="mostra o preço que ele acha numa URL")
     p_testar.add_argument("url")
@@ -64,7 +64,7 @@ def main(argv=None):
     if args.comando == "testar":
         return testar(args.url, args.seletor, args.salvar)
 
-    from cacador.bot import rodar
+    from scentinel.bot import rodar
 
     rodar()
     return 0

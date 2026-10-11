@@ -1,6 +1,6 @@
 import pytest
 
-from cacador.busca import buscar, detectar_concentracao, normalizar
+from scentinel.busca import buscar, detectar_concentracao, normalizar
 
 
 def perfume(nome, marca=None, apelidos="", id_=None):

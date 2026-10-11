@@ -8,18 +8,18 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from cacador.promo import Nivel
+from scentinel.promo import Nivel
 
 PASTA_PROJETO = Path(__file__).resolve().parent.parent
 ARQ_CONFIG = PASTA_PROJETO / "config.toml"
 ARQ_ENV = PASTA_PROJETO / ".env"
-ARQ_DB = PASTA_PROJETO / "dados" / "cacador.db"
+ARQ_DB = PASTA_PROJETO / "dados" / "scentinel.db"
 
 # Educação com as lojas: ninguém baixa disso, nem pelo config.
 INTERVALO_MIN_HORAS = 3
 DELAY_MIN_S = 5
 
-log = logging.getLogger("cacador")
+log = logging.getLogger("scentinel")
 
 
 @dataclass
@@ -43,7 +43,7 @@ class Config:
     niveis: list = field(default_factory=list)
 
     def nivel_minimo_para(self, nome_perfume):
-        from cacador.busca import normalizar
+        from scentinel.busca import normalizar
 
         alvo = normalizar(nome_perfume)
         for nome, nivel in self.nivel_minimo_por_perfume.items():

@@ -1,6 +1,6 @@
 import pytest
 
-from cacador.promo import (
+from scentinel.promo import (
     FONTE_HISTORICO, FONTE_LOJA, FONTE_MENOR, Decisao, Estado, Nivel,
     avaliar, calcular_referencia, confirmou, decidir, desconto_pct,
     nivel_do_desconto, precisa_rechecar,

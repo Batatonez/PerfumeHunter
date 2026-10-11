@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Instala o Caçador de Perfumes na pasta atual. NÃO usa sudo: só mexe nesta pasta.
+# Instala o Scentinel na pasta atual. NÃO usa sudo: só mexe nesta pasta.
 # Uso: ./instalar.sh
 set -euo pipefail
 cd "$(dirname "$0")"
 PASTA="$(pwd)"
+USUARIO="${USER:-$(id -un)}"
 
-echo "🧴 Instalando o Caçador de Perfumes em $PASTA"
+echo "🐈‍⬛ Instalando o Scentinel em $PASTA"
 
 if ! python3 -c 'import sys; sys.exit(sys.version_info < (3, 11))'; then
     echo "❌ Precisa de Python 3.11 ou mais novo (tem: $(python3 --version))"
@@ -32,8 +33,8 @@ if [ ! -f .env ]; then
     echo "   criei o .env: abra e preencha (nano .env)"
 fi
 chmod 600 .env
-sed -e "s|__USUARIO__|$USER|g" -e "s|__PASTA__|$PASTA|g" cacador.service > dados/cacador.service
-echo "   gerei dados/cacador.service (usuário $USER)"
+sed -e "s|__USUARIO__|$USUARIO|g" -e "s|__PASTA__|$PASTA|g" scentinel.service > dados/scentinel.service
+echo "   gerei dados/scentinel.service (usuário $USUARIO)"
 
 echo
 echo "✅ Pronto! Próximos passos no README: preencher o .env, testar e ligar o systemd."

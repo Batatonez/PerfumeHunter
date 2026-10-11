@@ -17,7 +17,7 @@ from dataclasses import dataclass
 import requests
 from bs4 import BeautifulSoup
 
-from cacador import lojas
+from scentinel import lojas
 
 try:  # lxml é mais rápido e gasta menos RAM; html.parser é o plano B
     import lxml  # noqa: F401

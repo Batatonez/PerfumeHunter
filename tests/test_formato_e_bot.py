@@ -1,8 +1,8 @@
 from datetime import UTC, datetime
 
-from cacador import config, db
-from cacador.formato import embed_alerta, embed_locate, formatar_data, formatar_reais
-from cacador.promo import Avaliacao, Nivel, Oferta
+from scentinel import config, db
+from scentinel.formato import embed_alerta, embed_locate, formatar_data, formatar_reais
+from scentinel.promo import Avaliacao, Nivel, Oferta
 
 RASTRO = Nivel(3, "Rastro", "🟠", 30, 0xE67E22)
 
@@ -74,10 +74,10 @@ def test_config_nao_deixa_baixar_de_3h(tmp_path):
 
 def test_comandos_registram_sem_erro():
     """Monta o bot (sem conectar) e confere os slash commands."""
-    from cacador.bot import BotCacador, registrar_comandos
+    from scentinel.bot import BotScentinel, registrar_comandos
 
     segredos = config.Segredos("x", 1, 2, 3)
-    bot = BotCacador(config.carregar_config(), segredos, db.conectar(":memory:"))
+    bot = BotScentinel(config.carregar_config(), segredos, db.conectar(":memory:"))
     registrar_comandos(bot.tree)
     nomes = {c.name for c in bot.tree.get_commands()}
     assert nomes == {"locate", "add", "remove", "lista", "historico", "checar", "teste_alerta"}

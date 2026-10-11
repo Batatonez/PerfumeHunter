@@ -1,4 +1,8 @@
-# 🧴 Caçador de Perfumes
+![Scentinel](assets/banner-gato.png)
+
+# 🐈‍⬛ Scentinel
+
+*O gato de guarda dos perfumes.*
 
 Bot de Discord que vigia preço de perfume (Mercado Livre, Boticário, Natura e lojas de perfume), avisa quando entra promo, classificada em **níveis**, e responde `/locate nome` com a maior promo entre todos os anúncios cadastrados.
 
@@ -42,12 +46,12 @@ sudo apt update
 sudo apt install -y git python3-venv python3-pip
 ```
 
-Baixe o projeto e rode o instalador. O instalador **não usa sudo**: ele só mexe dentro da pasta `~/cacador`.
+Baixe o projeto e rode o instalador. O instalador **não usa sudo**: ele só mexe dentro da pasta `~/scentinel`.
 
 ```bash
 cd ~
-git clone https://github.com/Batatonez/PerfumeHunter.git cacador
-cd cacador
+git clone https://github.com/Batatonez/PerfumeHunter.git scentinel
+cd scentinel
 ./instalar.sh
 ```
 
@@ -55,16 +59,17 @@ O `instalar.sh` faz quatro coisas:
 - cria o `.venv` (ambiente Python isolado);
 - instala as dependências;
 - roda os testes;
-- cria o `.env` e gera o `dados/cacador.service` com o seu usuário.
+- cria o `.env` e gera o `dados/scentinel.service` com o seu usuário.
 
 ---
 
 ## 2. Criar o bot no Discord
 
-1. Entre em <https://discord.com/developers/applications> e clique em **New Application**. Dê o nome de "Caçador de Perfumes".
+1. Entre em <https://discord.com/developers/applications> e clique em **New Application**. Dê o nome de "Scentinel".
 2. No menu **Bot**:
    - clique em **Reset Token** e copie o token (ele vai pro `.env`; **não mostre pra ninguém**);
-   - **Privileged Gateway Intents** podem ficar todas desligadas (o bot não precisa delas).
+   - **Privileged Gateway Intents** podem ficar todas desligadas (o bot não precisa delas);
+   - em **Icon**, suba `assets/avatar.png`; em **Banner**, suba `assets/banner-gato.png` (ou `assets/banner.png`, sem o gato).
 3. No menu **OAuth2 → General**, copie o **Client ID**.
 4. Monte o link de convite trocando `CLIENT_ID` pelo Client ID que você copiou:
 
@@ -74,6 +79,19 @@ O `instalar.sh` faz quatro coisas:
 
    O `19456` dá ao bot só três permissões: ver canais, mandar mensagem e mandar embed (o card bonito). Pra marcar você, ele não precisa de nenhuma permissão extra.
 5. Abra o link, escolha o seu servidor e autorize.
+6. (Opcional) Em **General Information**, coloque a descrição e as tags:
+
+   ```
+   🐈‍⬛ Scentinel, o gato de guarda dos perfumes.
+
+   Vigio preços no Mercado Livre, Boticário, Natura e lojas de perfume 24h por dia e aviso aqui quando aparece promo de verdade, do 🟢 Cheirinho ao 💎 Bug de preço.
+
+   🔎 /locate: acha a maior promo de um perfume
+   📈 /historico: menor, maior e preço médio
+   📋 /lista: tudo que tô vigiando
+   ```
+
+   Tags: `perfume`, `promoções`, `alerta de preço`, `ofertas`, `compras`.
 
 ---
 
@@ -82,7 +100,7 @@ O `instalar.sh` faz quatro coisas:
 Primeiro, ligue o **Modo Desenvolvedor** no Discord: Configurações → Avançado → Modo Desenvolvedor. É ele que faz aparecer a opção "Copiar ID" no botão direito.
 
 ```bash
-nano ~/cacador/.env
+nano ~/scentinel/.env
 ```
 
 | Variável | Onde pegar |
@@ -101,8 +119,8 @@ Sem aspas e sem espaço. Pra salvar no nano: `Ctrl+O`, `Enter` e depois `Ctrl+X`
 **Teste de leitura de preço** (não precisa do Discord):
 
 ```bash
-cd ~/cacador
-.venv/bin/python -m cacador testar "https://link-do-perfume"
+cd ~/scentinel
+.venv/bin/python -m scentinel testar "https://link-do-perfume"
 ```
 
 Ele mostra o preço, o "de" riscado e o Pix. Se não achar o preço, veja a [seção 9](#9-quando-uma-loja-não-funciona).
@@ -110,7 +128,7 @@ Ele mostra o preço, o "de" riscado e o Pix. Se não achar o preço, veja a [se�
 **Bot ligado na mão** (pra ver funcionando antes do systemd):
 
 ```bash
-.venv/bin/python -m cacador
+.venv/bin/python -m scentinel
 ```
 
 Quando aparecer `✅ Bot online`, teste no Discord:
@@ -126,23 +144,23 @@ Pra desligar, aperte `Ctrl+C`.
 O systemd é quem liga programas no boot e religa se eles caírem. Os comandos abaixo usam `sudo` porque mexem na pasta de serviços do sistema, `/etc/systemd/system`.
 
 ```bash
-cd ~/cacador
-sudo cp dados/cacador.service /etc/systemd/system/cacador.service   # registra o serviço
+cd ~/scentinel
+sudo cp dados/scentinel.service /etc/systemd/system/scentinel.service   # registra o serviço
 sudo systemctl daemon-reload                                       # avisa o systemd que tem serviço novo
-sudo systemctl enable --now cacador                                # liga agora E em todo boot
+sudo systemctl enable --now scentinel                                # liga agora E em todo boot
 ```
 
 Pra conferir:
 
 ```bash
-systemctl status cacador        # tá rodando? (q pra sair)
-journalctl -u cacador -f        # log ao vivo, uma linha por anúncio checado (Ctrl+C sai)
+systemctl status scentinel        # tá rodando? (q pra sair)
+journalctl -u scentinel -f        # log ao vivo, uma linha por anúncio checado (Ctrl+C sai)
 ```
 
 Se você mexer no `config.toml` ou no `.env`, reinicie o bot:
 
 ```bash
-sudo systemctl restart cacador
+sudo systemctl restart scentinel
 ```
 
 ---
@@ -244,25 +262,25 @@ Educação com as lojas (não negociável):
 
 ## 9. Quando uma loja não funciona
 
-1. Rode `.venv/bin/python -m cacador testar "URL" --salvar`. Isso salva o HTML em `tests/fixtures/reais/`.
+1. Rode `.venv/bin/python -m scentinel testar "URL" --salvar`. Isso salva o HTML em `tests/fixtures/reais/`.
 2. Se não achou o preço, abra a página no navegador, clique com o botão direito no preço e escolha **Inspecionar**. Veja a classe do elemento, por exemplo `<span class="preco-final">`, e teste:
    ```bash
-   .venv/bin/python -m cacador testar "URL" --seletor ".preco-final"
+   .venv/bin/python -m scentinel testar "URL" --seletor ".preco-final"
    ```
 3. Funcionou? Cadastre com `/add ... seletor:.preco-final`.
-4. Não funcionou? Manda o HTML salvo pro Claude. Pode ser que precise de um adaptador em `cacador/lojas/`.
+4. Não funcionou? Manda o HTML salvo pro Claude. Pode ser que precise de um adaptador em `scentinel/lojas/`.
 
 ---
 
 ## 10. Dia a dia
 
 ```bash
-journalctl -u cacador -f                   # ver o log
-sudo systemctl restart cacador             # reiniciar
-cd ~/cacador && git pull && .venv/bin/pip install -r requirements.txt && sudo systemctl restart cacador   # atualizar
+journalctl -u scentinel -f                   # ver o log
+sudo systemctl restart scentinel             # reiniciar
+cd ~/scentinel && git pull && .venv/bin/pip install -r requirements.txt && sudo systemctl restart scentinel   # atualizar
 ```
 
-O banco fica em `dados/cacador.db`. Pra fazer backup, é só copiar esse arquivo. ⚠️ O HD de 500 GB (`/dev/sdb`) tem dados antigos: **não formate nem reparticione**.
+O banco fica em `dados/scentinel.db`. Pra fazer backup, é só copiar esse arquivo. ⚠️ O HD de 500 GB (`/dev/sdb`) tem dados antigos: **não formate nem reparticione**.
 
 ---
 
@@ -270,8 +288,8 @@ O banco fica em `dados/cacador.db`. Pra fazer backup, é só copiar esse arquivo
 
 Nada aqui depende do Mint:
 
-1. No Mint, copie o `.env` e o `dados/cacador.db` pra fora (pendrive ou `scp`).
-2. Instale o Ubuntu Server e siga as seções 1, 3 e 5. Antes da seção 5, coloque o `.env` e o `cacador.db` de volta no lugar.
+1. No Mint, copie o `.env` e o `dados/scentinel.db` pra fora (pendrive ou `scp`).
+2. Instale o Ubuntu Server e siga as seções 1, 3 e 5. Antes da seção 5, coloque o `.env` e o `scentinel.db` de volta no lugar.
 3. Na seção 6, a parte da tampa e da suspensão é igual. O Wi-Fi no Ubuntu Server é configurado no `netplan` durante a instalação.
 
 ---
@@ -284,11 +302,11 @@ Nada aqui depende do Mint:
 
 | Arquivo | O que faz |
 |---|---|
-| `cacador/coleta.py` | baixa a página e acha o preço (seletor → JSON-LD → meta), o riscado e o Pix |
-| `cacador/promo.py` | referência, níveis, anti-spam e sanidade (funções puras) |
-| `cacador/caca.py` | junta tudo: rodada, `/add`, `/locate`, `/historico` |
-| `cacador/busca.py` | normalização de nome e fuzzy match |
-| `cacador/db.py` | SQLite (datas em UTC) |
-| `cacador/formato.py` | R$, datas em São Paulo e embeds |
-| `cacador/bot.py` | Discord: loop de caça e slash commands |
-| `cacador/lojas/` | nome das lojas e adaptadores específicos (vazio até alguma loja precisar) |
+| `scentinel/coleta.py` | baixa a página e acha o preço (seletor → JSON-LD → meta), o riscado e o Pix |
+| `scentinel/promo.py` | referência, níveis, anti-spam e sanidade (funções puras) |
+| `scentinel/caca.py` | junta tudo: rodada, `/add`, `/locate`, `/historico` |
+| `scentinel/busca.py` | normalização de nome e fuzzy match |
+| `scentinel/db.py` | SQLite (datas em UTC) |
+| `scentinel/formato.py` | R$, datas em São Paulo e embeds |
+| `scentinel/bot.py` | Discord: loop de caça e slash commands |
+| `scentinel/lojas/` | nome das lojas e adaptadores específicos (vazio até alguma loja precisar) |

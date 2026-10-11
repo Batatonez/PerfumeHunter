@@ -6,7 +6,7 @@ com discord.Embed.from_dict() no bot.
 
 from datetime import UTC, timedelta, timezone
 
-from cacador.promo import FONTE_LOJA
+from scentinel.promo import FONTE_LOJA
 
 try:
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError

@@ -1,5 +1,5 @@
-# Caçador de Perfumes: ajustes
-# Depois de mudar algo aqui: sudo systemctl restart cacador
+# Scentinel: ajustes
+# Depois de mudar algo aqui: sudo systemctl restart scentinel
 
 [geral]
 # Intervalo mínimo entre checagens do MESMO anúncio, em horas.

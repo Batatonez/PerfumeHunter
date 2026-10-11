@@ -1,8 +1,8 @@
-# Unit do systemd do Caçador de Perfumes.
-# Não edite à mão: o ./instalar.sh gera dados/cacador.service com o seu usuário e pasta.
+# Unit do systemd do Scentinel.
+# Não edite à mão: o ./instalar.sh gera dados/scentinel.service com o seu usuário e pasta.
 
 [Unit]
-Description=Caçador de Perfumes (bot do Discord)
+Description=Scentinel (bot do Discord)
 After=network-online.target
 Wants=network-online.target
 
@@ -12,7 +12,7 @@ User=__USUARIO__
 WorkingDirectory=__PASTA__
 EnvironmentFile=__PASTA__/.env
 Environment=PYTHONUNBUFFERED=1
-ExecStart=__PASTA__/.venv/bin/python -m cacador
+ExecStart=__PASTA__/.venv/bin/python -m scentinel
 Restart=on-failure
 RestartSec=30
 # trava de segurança pra RAM (a máquina tem 3 GB)

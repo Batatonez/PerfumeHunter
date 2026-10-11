@@ -15,10 +15,10 @@ import time
 from dataclasses import dataclass
 from datetime import timedelta
 
-from cacador import busca, coleta, db, lojas, promo
-from cacador.formato import formatar_pct, formatar_reais
+from scentinel import busca, coleta, db, lojas, promo
+from scentinel.formato import formatar_pct, formatar_reais
 
-log = logging.getLogger("cacador")
+log = logging.getLogger("scentinel")
 
 
 @dataclass

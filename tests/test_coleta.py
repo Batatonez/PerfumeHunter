@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from cacador import coleta
-from cacador.coleta import achar_preco, extrair_preco_de_texto, texto_para_preco
+from scentinel import coleta
+from scentinel.coleta import achar_preco, extrair_preco_de_texto, texto_para_preco
 
 
 def pagina(corpo="", head=""):

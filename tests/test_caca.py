@@ -5,9 +5,9 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from cacador import config, db
-from cacador.caca import Cacador, limpar_nome, ranquear
-from cacador.coleta import Leitura, Resultado
+from scentinel import config, db
+from scentinel.caca import Cacador, limpar_nome, ranquear
+from scentinel.coleta import Leitura, Resultado
 
 
 class Relogio:
@@ -338,7 +338,7 @@ def test_locate_rechecagem_de_leitura_velha(ambiente):
 
 
 def test_ranquear_empate_ganha_menor_preco(ambiente):
-    from cacador.promo import Avaliacao, Oferta
+    from scentinel.promo import Avaliacao, Oferta
 
     n1 = ambiente.cfg.niveis[0]
 

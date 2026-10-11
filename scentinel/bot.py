@@ -6,13 +6,13 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 
-from cacador import busca, config, db, formato
-from cacador.caca import Cacador
+from scentinel import busca, config, db, formato
+from scentinel.caca import Cacador
 
-log = logging.getLogger("cacador")
+log = logging.getLogger("scentinel")
 
 
-class BotCacador(discord.Client):
+class BotScentinel(discord.Client):
     def __init__(self, cfg, segredos, con):
         intents = discord.Intents.none()
         intents.guilds = True
@@ -298,7 +298,7 @@ def registrar_comandos(tree):
         if not bot.eh_dono(interaction):
             await interaction.response.send_message("Só o dono pode usar isso 🙅", ephemeral=True)
             return
-        from cacador.promo import Avaliacao, Oferta
+        from scentinel.promo import Avaliacao, Oferta
 
         nivel = sorted(bot.cfg.niveis, key=lambda n: n.nivel)[min(2, len(bot.cfg.niveis) - 1)]
         oferta = Oferta(
@@ -315,7 +315,7 @@ def registrar_comandos(tree):
     @tree.error
     async def ao_errar(interaction: discord.Interaction, erro: app_commands.AppCommandError):
         log.exception("erro no comando", exc_info=erro)
-        texto = "💥 Deu erro aqui. Olha o log (`journalctl -u cacador -f`)."
+        texto = "💥 Deu erro aqui. Olha o log (`journalctl -u scentinel -f`)."
         try:
             if interaction.response.is_done():
                 await interaction.edit_original_response(content=texto)
@@ -331,5 +331,5 @@ def rodar():
     cfg = config.carregar_config()
     segredos = config.carregar_segredos()
     con = db.conectar(config.ARQ_DB)
-    bot = BotCacador(cfg, segredos, con)
+    bot = BotScentinel(cfg, segredos, con)
     bot.run(segredos.token, log_handler=None)
