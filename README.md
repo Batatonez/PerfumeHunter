@@ -80,26 +80,28 @@ sudo apt update
 sudo apt install -y git python3-venv python3-pip
 ```
 
-O repo é **privado**, então o notebook precisa de uma chave SSH pra conseguir baixar. Crie a chave (sem senha, pra o `git pull` funcionar sozinho) e mostre a parte pública:
+O repo é **privado**, então o notebook precisa de uma chave SSH pra conseguir baixar. Crie uma chave **só pro Scentinel** (arquivo `~/.ssh/scentinel`, sem senha, pra o `git pull` funcionar sozinho). Ter um arquivo próprio evita sobrescrever outra chave que já exista no notebook, como a de outro projeto:
 
 ```bash
-ssh-keygen -t ed25519 -C "scentinel-notebook" -f ~/.ssh/id_ed25519 -N ""
-cat ~/.ssh/id_ed25519.pub
+ssh-keygen -t ed25519 -C scentinel -f ~/.ssh/scentinel -N ""
+cat ~/.ssh/scentinel.pub
 ```
 
 Copie a linha que aparecer (começa com `ssh-ed25519`). No GitHub, vá no repo → **Settings → Deploy keys → Add deploy key**, cole a linha, dê o nome "notebook" e **deixe "Allow write access" desmarcado**. Assim essa chave só consegue *ler* este repo, e mais nada da sua conta.
 
-Teste (na primeira vez ele pergunta se confia no GitHub: digite `yes`):
+Agora ensine o SSH a usar essa chave com um apelido (`github-scentinel`). Isso só **acrescenta** um bloco no fim do `~/.ssh/config`, sem mexer no que já existe lá:
 
 ```bash
-ssh -T git@github.com     # tem que responder "Hi Batatonez/PerfumeHunter! You've successfully authenticated"
+printf '\nHost github-scentinel\n  HostName github.com\n  User git\n  IdentityFile ~/.ssh/scentinel\n  IdentitiesOnly yes\n' >> ~/.ssh/config
+chmod 600 ~/.ssh/config
+ssh -T github-scentinel     # 1ª vez: digite yes. Tem que responder "Hi Batatonez/PerfumeHunter! You've successfully authenticated"
 ```
 
 Baixe o projeto e rode o instalador. O instalador **não usa sudo**: ele só mexe dentro da pasta `~/scentinel`.
 
 ```bash
 cd ~
-git clone -b claude/new-session-uawklz git@github.com:Batatonez/PerfumeHunter.git scentinel
+git clone -b claude/new-session-uawklz github-scentinel:Batatonez/PerfumeHunter.git scentinel
 cd scentinel
 ./instalar.sh
 ```
