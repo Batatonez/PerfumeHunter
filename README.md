@@ -389,10 +389,18 @@ Desde 2025 o ML fechou a busca de anúncios da API (`/sites/MLB/search` dá 403 
 ## 10. Dia a dia
 
 ```bash
+scentinel-update                             # atualizar (baixa, testa e reinicia)
 journalctl -u scentinel -f                   # ver o log
 sudo systemctl restart scentinel             # reiniciar
-cd ~/scentinel && git pull && .venv/bin/pip install -r requirements.txt && sudo systemctl restart scentinel   # atualizar
 ```
+
+**`scentinel-update`** baixa o código novo, instala dependência nova se tiver, roda os testes e reinicia o bot (pede a senha do notebook só pra reiniciar). Se os testes falharem, ele volta pro código de antes e não reinicia. Já está na versão mais nova? Ele avisa e não faz nada (`scentinel-update --reiniciar` reinicia mesmo assim).
+
+Pra criar o comando (uma vez só):
+```bash
+sudo ln -sf ~/scentinel/atualizar.sh /usr/local/bin/scentinel-update
+```
+(cria um atalho na pasta de comandos do sistema, pra funcionar de qualquer pasta.)
 
 O banco fica em `dados/scentinel.db`. Pra fazer backup, é só copiar esse arquivo. ⚠️ O HD de 500 GB (`/dev/sdb`) tem dados antigos: **não formate nem reparticione**.
 
