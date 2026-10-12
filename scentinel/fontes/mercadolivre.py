@@ -226,6 +226,7 @@ class OfertaML:
     preco_de: float | None
     oficial: bool
     item_id: str | None = None
+    vendedor: str | None = None
 
 
 def url_produto(produto_id):
@@ -292,7 +293,8 @@ def ofertas_do_produto(dados, so_oficial=True):
         if so_oficial and not oficial:
             continue
         de = texto_para_preco(r.get("original_price"))
-        saida.append(OfertaML(preco, de if de and de > preco else None, oficial, r.get("item_id")))
+        vendedor = str(r["seller_id"]) if r.get("seller_id") else None
+        saida.append(OfertaML(preco, de if de and de > preco else None, oficial, r.get("item_id"), vendedor))
     return sorted(saida, key=lambda o: o.preco)
 
 
@@ -302,9 +304,9 @@ def url_anuncio(item_id):
     return f"https://produto.mercadolivre.com.br/MLB-{numero}-_JM" if numero else None
 
 
-def achado_do_produto(produto, oferta, link_do_vendedor=False):
+def achado_do_produto(produto, oferta, link_do_vendedor=False, bem_avaliado=False):
     """O link é a página do produto (fica o mesmo quando o vendedor mais barato muda: o histórico não se perde).
-    link_do_vendedor: o anúncio daquele vendedor (pro vendedor comum que só aparece no /locate)."""
+    link_do_vendedor: o anúncio daquele vendedor (vendedor comum)."""
     return Achado(
         titulo=produto.nome,
         url=(url_anuncio(oferta.item_id) if link_do_vendedor else None) or produto.url,
@@ -316,7 +318,14 @@ def achado_do_produto(produto, oferta, link_do_vendedor=False):
         ml=produto.ml,
         imagem=produto.imagem,
         genero=produto.genero,
+        bem_avaliado=bem_avaliado,
     )
+
+
+def reputacao_boa(dados):
+    """/users/{id} -> vendedor top? Termômetro verde (5_green) e MercadoLíder Gold ou Platinum."""
+    rep = _obj(_obj(dados).get("seller_reputation"))
+    return str(rep.get("level_id") or "").startswith("5") and rep.get("power_seller_status") in ("gold", "platinum")
 
 
 def _grave(erro):
@@ -347,7 +356,8 @@ class FonteMercadoLivre:
     ]
 
     def __init__(self, nome="Mercado Livre", so_loja_oficial=True, modo="auto", termos_varredura=None, paginas=1,
-                 categorias_varredura=None, max_categorias=4, max_produtos=5, max_produtos_varredura=8):
+                 categorias_varredura=None, max_categorias=4, max_produtos=5, max_produtos_varredura=8,
+                 vendedor_bem_avaliado=True):
         self.nome = nome
         self.so_oficial = so_loja_oficial
         self.modo = modo  # "auto" | "api" | "html"
@@ -364,6 +374,9 @@ class FonteMercadoLivre:
         self._categorias = None
         self._categorias_ate = 0
         self._sem_mais_vendidos_ate = 0
+        # além da loja oficial, vale vendedor comum MercadoLíder Gold/Platinum com termômetro verde
+        self.vendedor_bem_avaliado = vendedor_bem_avaliado
+        self._reputacao = {}  # vendedor -> (bem avaliado?, vale até)
 
     @property
     def _so_masculino(self):
@@ -471,21 +484,42 @@ class FonteMercadoLivre:
                     return self._fechar(achados, erro)
                 continue
             falhas = 0
-            achados += self._escolher(produto, ofertas)
+            achados += self._escolher(produto, ofertas, token)
         return ResultadoBusca(achados=achados)
 
-    def _escolher(self, produto, ofertas):
-        """Loja oficial mais barata (é o que pode ir pro canal) e, se tiver vendedor comum mais barato,
-        ele também, com o link do anúncio dele (só aparece no /locate: o canal só posta loja oficial)."""
+    def _escolher(self, produto, ofertas, token=None):
+        """Loja oficial mais barata e, se tiver vendedor comum mais barato, ele também (com o link do anúncio
+        dele). O canal posta o comum só se ele for bem avaliado; o /locate mostra todos."""
         if not ofertas:
             return []
         if not self.so_oficial:
             return [achado_do_produto(produto, ofertas[0])]
         oficiais = [o for o in ofertas if o.oficial]
         saida = [achado_do_produto(produto, oficiais[0])] if oficiais else []
-        if not ofertas[0].oficial and (not oficiais or ofertas[0].preco < oficiais[0].preco):
-            saida.append(achado_do_produto(produto, ofertas[0], link_do_vendedor=True))
+        comuns = [o for o in ofertas if not o.oficial and (not oficiais or o.preco < oficiais[0].preco)]
+        if comuns:
+            # o mais barato bem avaliado (vai pro canal); se o mais barato de todos não for, ele também (/locate)
+            bom = next((o for o in comuns[:2] if self._bem_avaliado(o.vendedor, token)), None)
+            if bom:
+                saida.append(achado_do_produto(produto, bom, link_do_vendedor=True, bem_avaliado=True))
+            if bom is not comuns[0]:
+                saida.append(achado_do_produto(produto, comuns[0], link_do_vendedor=True))
         return saida
+
+    def _bem_avaliado(self, vendedor, token):
+        """Reputação do vendedor (guardada 1 dia; se a API não responder, conta como não avaliado por 1 h)."""
+        if not (self.vendedor_bem_avaliado and vendedor and token):
+            return False
+        guardado = self._reputacao.get(vendedor)
+        if guardado and time.time() < guardado[1]:
+            return guardado[0]
+        _respiro()
+        dados, erro, _ = self._get(f"/users/{vendedor}", token)
+        bom = not erro and reputacao_boa(dados)
+        if len(self._reputacao) >= MAX_CACHE_PRODUTOS:
+            self._reputacao.clear()
+        self._reputacao[vendedor] = (bom, time.time() + (3600 if erro else 24 * 3600))
+        return bom
 
     def _fechar(self, achados, erro):
         """Tarefa interrompida: erro grave vale pra loja toda; erro de rede com algo achado entrega o que deu."""
@@ -691,13 +725,14 @@ class FonteMercadoLivre:
 # DIAGNÓSTICO (python -m scentinel ml-teste)
 # ============================================================
 
-def diagnostico(termo="sauvage dior", obter=None):
+def diagnostico(termo="sauvage dior", obter=None, completo=None):
     """Testa as rotas da API com o login salvo. Devolve linhas pra mostrar: só status e nomes de
     campos (nada de token nem dado da conta), pra mandar print sem medo."""
     token = token_valido()
     if not token:
         return ["❌ Sem login do ML. Rode: python -m scentinel ml-login"]
     cab = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+    completo = obter is None if completo is None else completo
     obter = obter or (lambda caminho, params=None: coleta._sessao.get(
         f"{API}{caminho}", params=params, headers=cab, timeout=coleta.TIMEOUT_S))
     linhas = []
@@ -728,22 +763,36 @@ def diagnostico(termo="sauvage dior", obter=None):
     resultados = (busca or {}).get("results") or []
     if busca is not None:
         linhas.append(f"   {len(resultados)} produto(s). Campos: {campos(resultados[0] if resultados else None)}")
-    for bruto in resultados[:2]:
+    mostrou_campos, vendedor_comum = False, None
+    for bruto in resultados[:5]:  # onde cada produto se perde: sem vendedor, só vendedor comum...
         produto = produto_do_catalogo(bruto)
         if not produto:
             continue
-        linhas.append(f"   produto {produto.id}: {produto.nome[:60]} · marca={produto.marca} · ml={produto.ml}")
-        itens = chamar(f"/products/{produto.id}/items", f"/products/{produto.id}/items")
-        lista = [r for r in (itens or {}).get("results") or [] if isinstance(r, dict)]
-        if lista:
-            com_loja = sum(1 for r in lista if "official_store_id" in r)
-            oficiais = sum(1 for r in lista if r.get("official_store_id"))
-            com_de = sum(1 for r in lista if r.get("original_price"))
-            precos = [p for p in (texto_para_preco(r.get("price")) for r in lista) if p]
-            linhas.append(f"   {len(lista)} vendedor(es) · campo loja oficial em {com_loja} · oficiais={oficiais} · "
-                          f"com preço 'de'={com_de} · menor={min(precos) if precos else '-'}")
-            linhas.append(f"   Campos: {campos(lista[0])}")
-            break
+        try:
+            r = obter(f"/products/{produto.id}/items")
+            itens = r.json() if r.status_code == 200 else None
+            status = r.status_code
+        except Exception as e:
+            itens, status = None, e.__class__.__name__
+        lista = [x for x in _obj(itens).get("results") or [] if isinstance(x, dict)]
+        oficiais = sum(1 for x in lista if x.get("official_store_id"))
+        precos = [p for p in (texto_para_preco(x.get("price")) for x in lista) if p]
+        resumo = (f"{len(lista)} vendedor(es), oficiais={oficiais}, menor={min(precos) if precos else '-'}"
+                  if lista else f"sem vendedor ({status})")
+        linhas.append(f"   {produto.id} {produto.nome[:42]} -> {resumo}")
+        if lista and not mostrou_campos:
+            mostrou_campos = True
+            com_loja = sum(1 for x in lista if "official_store_id" in x)
+            linhas.append(f"   campo loja oficial em {com_loja}/{len(lista)} · campos: {campos(lista[0])[:160]}")
+        comum = next((x for x in sorted(lista, key=lambda x: texto_para_preco(x.get("price")) or 9e9)
+                      if not x.get("official_store_id") and x.get("seller_id")), None)
+        vendedor_comum = vendedor_comum or (comum or {}).get("seller_id")
+    if vendedor_comum:
+        rep = chamar("/users/{vendedor} (reputação)", f"/users/{vendedor_comum}")
+        if rep is not None:
+            r = _obj(rep.get("seller_reputation"))
+            linhas.append(f"   nível={r.get('level_id')} · líder={r.get('power_seller_status')} · "
+                          f"bem avaliado={reputacao_boa(rep)}")
     cats = chamar(f"/categories/{CATEGORIA_BELEZA} (Beleza)", f"/categories/{CATEGORIA_BELEZA}")
     perfume = [f for f in (cats or {}).get("children_categories") or []
                if "perfum" in catalogo.texto_titulo(f.get("name"))]
@@ -757,4 +806,11 @@ def diagnostico(termo="sauvage dior", obter=None):
         if mais is not None:
             tipos = sorted({c.get("type") for c in conteudo if isinstance(c, dict)})
             linhas.append(f"   {len(conteudo)} item(ns), tipos: {', '.join(map(str, tipos)) or '-'}")
+    if completo:  # o que o /locate mostraria (a busca de verdade, do jeito que o bot faz)
+        res = FonteMercadoLivre().buscar(termo)
+        linhas.append(f"{'❌' if res.erro else '✅'} /locate \"{termo}\": {len(res.achados)} oferta(s)"
+                      + (f" · {res.erro}" if res.erro else ""))
+        for a in res.achados[:4]:
+            selo = "oficial" if a.oficial else "bem avaliado" if a.bem_avaliado else "comum"
+            linhas.append(f"   R$ {a.preco:.2f} ({selo}) {a.titulo[:50]}")
     return linhas

@@ -665,3 +665,40 @@ def test_ml_canal_masculino_feminino_vai_pro_fim(monkeypatch, tmp_path):
     fonte.publico = "masculino"
     fonte.buscar("212 vip")
     assert [c[0] for c in chamadas][1] == "/products/MLB9/items"  # o masculino entra primeiro
+
+
+def test_ml_vendedor_bem_avaliado(monkeypatch, tmp_path):
+    _com_login(monkeypatch, tmp_path)
+    chamadas = []
+    itens = {"results": [
+        {"item_id": "MLB20", "price": 280.0, "seller_id": 1, "condition": "new"},  # mais barato, reputação ruim
+        {"item_id": "MLB21", "price": 300.0, "original_price": 450.0, "seller_id": 2, "condition": "new"},  # top
+        {"item_id": "MLB22", "price": 400.0, "seller_id": 3, "official_store_id": 9, "condition": "new"},
+    ]}
+    monkeypatch.setattr(ml, "baixar_json", _api_falsa({
+        "/products/search": ({"results": [_produto_bruto("MLB1", "Perfume Queening Mind Games EDP 100ml")]}, None, False),
+        "/products/MLB1/items": (itens, None, False),
+        "/users/1": ({"seller_reputation": {"level_id": "3_yellow", "power_seller_status": None}}, None, False),
+        "/users/2": ({"seller_reputation": {"level_id": "5_green", "power_seller_status": "platinum"}}, None, False),
+    }, chamadas))
+    fonte = ml.FonteMercadoLivre()
+    res = fonte.buscar("queening")
+    vistos = {(a.preco, a.oficial, a.bem_avaliado, a.url) for a in res.achados}
+    assert vistos == {
+        (400.0, True, False, "https://www.mercadolivre.com.br/p/MLB1"),  # oficial
+        (300.0, False, True, "https://produto.mercadolivre.com.br/MLB-21-_JM"),  # bem avaliado: pode ir pro canal
+        (280.0, False, False, "https://produto.mercadolivre.com.br/MLB-20-_JM"),  # o mais barato: só no /locate
+    }
+    # reputação fica guardada: a próxima busca não pergunta de novo
+    chamadas.clear()
+    fonte.buscar("queening")
+    assert not any(c[0].startswith("/users/") for c in chamadas)
+    # dá pra desligar
+    assert not any(a.bem_avaliado for a in ml.FonteMercadoLivre(vendedor_bem_avaliado=False).buscar("queening").achados)
+
+
+def test_ml_reputacao_boa():
+    assert ml.reputacao_boa({"seller_reputation": {"level_id": "5_green", "power_seller_status": "gold"}})
+    assert not ml.reputacao_boa({"seller_reputation": {"level_id": "5_green", "power_seller_status": "silver"}})
+    assert not ml.reputacao_boa({"seller_reputation": {"level_id": "4_light_green", "power_seller_status": "platinum"}})
+    assert not ml.reputacao_boa({}) and not ml.reputacao_boa(None)

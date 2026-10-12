@@ -18,7 +18,7 @@ from datetime import timedelta
 
 from scentinel import busca, catalogo, db, promo
 from scentinel.coleta import Leitura, Resultado
-from scentinel.fontes import fonte_busca_item
+from scentinel.fontes import ResultadoBusca, fonte_busca_item
 from scentinel.formato import formatar_reais
 
 log = logging.getLogger("scentinel")
@@ -190,7 +190,7 @@ class Descoberta:
         so_item: busca do catálogo, só aceita esse item. Não mexe no banco (roda numa thread)."""
         if not achado.url or not achado.preco or not achado.disponivel:
             return None
-        if self.cfg.so_oficial and not achado.oficial:
+        if self.cfg.so_oficial and not (achado.oficial or achado.bem_avaliado):
             return None
         if so_item is not None and not self.item_no_publico(so_item):
             return None
@@ -504,6 +504,9 @@ class Descoberta:
                 pct = (a.preco_de - a.preco) / a.preco_de * 100 if a.preco_de and a.preco_de > a.preco else 0
                 ofertas.append((a, ml, pct))
                 candidatos.append((a, fonte))
+        log.info("/locate %r: %d oferta(s) de %s; casaram %d", consulta,
+                 sum(len(r.achados) for r in respostas if isinstance(r, ResultadoBusca)),
+                 ", ".join(resultado.lojas_ok) or "nenhuma loja", len(ofertas))
         vistos, unicas = set(), []
         for o in sorted(ofertas, key=lambda o: o[0].preco):
             if o[0].url not in vistos:

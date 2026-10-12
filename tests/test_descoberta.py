@@ -558,3 +558,14 @@ def test_login_vencido_depois_de_limite_ainda_avisa(amb):
     amb.a.varredura = [ResultadoBusca(erro="api: o login do ML venceu (HTTP 401)", bloqueado=True)]
     rodar(amb.desc.varredura(forcar=True))
     assert len(amb.avisos) == 1 and "401" in amb.avisos[0]
+
+
+def test_vendedor_bem_avaliado_vai_pro_canal_comum_nao(amb):
+    amb.a.varredura = [pagina(
+        achado("Perfume Lumina Bravo Masculino EDP 100ml", 150, "Loja A", "https://a/top", preco_de=400,
+               oficial=False, bem_avaliado=True),
+        achado("Perfume Lumina Forte Masculino EDP 100ml", 150, "Loja A", "https://a/qualquer", preco_de=400,
+               oficial=False),
+    )]
+    rodar(amb.desc.varredura())
+    assert [o.url for o, _ in amb.alertas] == ["https://a/top"]

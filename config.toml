@@ -140,8 +140,10 @@ publico = "masculino"
 
 [[descoberta.fontes]]
 tipo = "mercadolivre"
-# Perfume falsificado é comum no ML: só anúncios de loja oficial.
+# Perfume falsificado é comum no ML: o canal só posta loja oficial e vendedor comum bem avaliado
+# (MercadoLíder Gold/Platinum com termômetro verde). O /locate mostra todo mundo.
 so_loja_oficial = true
+vendedor_bem_avaliado = true
 # Precisa do login uma vez: python -m scentinel ml-login (veja o README).
 # Com login, a varredura pega os mais vendidos das categorias de perfume e busca estes termos no
 # catálogo do ML (cada produto: o vendedor oficial mais barato). Sem login, só a página (captcha).

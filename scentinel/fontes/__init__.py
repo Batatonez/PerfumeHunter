@@ -28,6 +28,7 @@ class Achado:
     imagem: str | None = None  # foto do produto (vai no post)
     chave: str | None = None  # id do mesmo produto entre vendedores (ex.: catálogo do ML)
     genero: str | None = None  # 'm', 'f', 'u' (unissex) quando a loja diz; None = não sei
+    bem_avaliado: bool = False  # vendedor comum com reputação top (ex.: MercadoLíder Gold/Platinum)
 
 
 @dataclass

@@ -347,7 +347,7 @@ Nas que derem ❌, coloque `ativo = false` no `config.toml`.
 
 ### Mercado Livre (precisa de login, uma vez)
 
-A busca do ML só funciona com um app (grátis) logado; sem isso ele pede captcha. Só entra **loja oficial** (tem muito perfume falsificado lá).
+A busca do ML só funciona com um app (grátis) logado; sem isso ele pede captcha. Como tem muito perfume falsificado lá, o canal só posta **loja oficial** e **vendedor bem avaliado** (MercadoLíder Gold/Platinum com termômetro verde; `vendedor_bem_avaliado = false` no `config.toml` deixa só loja oficial). O `/locate` mostra todo mundo.
 
 Desde 2025 o ML fechou a busca de anúncios da API (`/sites/MLB/search` dá 403 pra quase todo app). Por isso o bot usa o **catálogo** do ML: acha a página do produto (`/products/search`), vê todos os vendedores dele (`/products/{id}/items`) e fica com a **loja oficial mais barata**. O link do post é a página do produto no ML.
 
