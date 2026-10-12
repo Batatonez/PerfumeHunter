@@ -296,11 +296,18 @@ def ofertas_do_produto(dados, so_oficial=True):
     return sorted(saida, key=lambda o: o.preco)
 
 
-def achado_do_produto(produto, oferta):
-    """O link é a página do produto (fica o mesmo quando o vendedor mais barato muda: o histórico não se perde)."""
+def url_anuncio(item_id):
+    """Link do anúncio de um vendedor (o ML abre a página do produto com esse vendedor)."""
+    numero = re.sub(r"\D", "", str(item_id or ""))
+    return f"https://produto.mercadolivre.com.br/MLB-{numero}-_JM" if numero else None
+
+
+def achado_do_produto(produto, oferta, link_do_vendedor=False):
+    """O link é a página do produto (fica o mesmo quando o vendedor mais barato muda: o histórico não se perde).
+    link_do_vendedor: o anúncio daquele vendedor (pro vendedor comum que só aparece no /locate)."""
     return Achado(
         titulo=produto.nome,
-        url=produto.url,
+        url=(url_anuncio(oferta.item_id) if link_do_vendedor else None) or produto.url,
         preco=oferta.preco,
         loja="Mercado Livre",
         marca=produto.marca,
@@ -430,7 +437,8 @@ class FonteMercadoLivre:
         return produto, None
 
     def _ofertas(self, produto_id, token):
-        """Vendedores do produto. Só olha as páginas seguintes se a 1ª não tiver loja oficial."""
+        """Todos os vendedores do produto (oficiais ou não), do mais barato pro mais caro.
+        Só olha as páginas seguintes se a 1ª não tiver loja oficial."""
         ofertas, offset = [], 0
         for pagina in range(MAX_PAGINAS_OFERTAS):
             if pagina:
@@ -442,10 +450,10 @@ class FonteMercadoLivre:
                 return ofertas, erro
             dados = _obj(dados)
             resultados = _lista(dados.get("results"))
-            ofertas += ofertas_do_produto(dados, self.so_oficial)
+            ofertas += ofertas_do_produto(dados, so_oficial=False)
             offset += len(resultados)
             total = _obj(dados.get("paging")).get("total")
-            if ofertas or not resultados or not isinstance(total, int) or offset >= total:
+            if any(o.oficial for o in ofertas) or not resultados or not isinstance(total, int) or offset >= total:
                 break
         return sorted(ofertas, key=lambda o: o.preco), None
 
@@ -463,9 +471,21 @@ class FonteMercadoLivre:
                     return self._fechar(achados, erro)
                 continue
             falhas = 0
-            if ofertas:
-                achados.append(achado_do_produto(produto, ofertas[0]))
+            achados += self._escolher(produto, ofertas)
         return ResultadoBusca(achados=achados)
+
+    def _escolher(self, produto, ofertas):
+        """Loja oficial mais barata (é o que pode ir pro canal) e, se tiver vendedor comum mais barato,
+        ele também, com o link do anúncio dele (só aparece no /locate: o canal só posta loja oficial)."""
+        if not ofertas:
+            return []
+        if not self.so_oficial:
+            return [achado_do_produto(produto, ofertas[0])]
+        oficiais = [o for o in ofertas if o.oficial]
+        saida = [achado_do_produto(produto, oficiais[0])] if oficiais else []
+        if not ofertas[0].oficial and (not oficiais or ofertas[0].preco < oficiais[0].preco):
+            saida.append(achado_do_produto(produto, ofertas[0], link_do_vendedor=True))
+        return saida
 
     def _fechar(self, achados, erro):
         """Tarefa interrompida: erro grave vale pra loja toda; erro de rede com algo achado entrega o que deu."""
@@ -507,6 +527,8 @@ class FonteMercadoLivre:
         ofertas, erro = self._ofertas(produto_id, token)
         if erro:
             return self._resultado_de_erro(erro)
+        if self.so_oficial:
+            ofertas = [o for o in ofertas if o.oficial]
         if not ofertas:
             return ResultadoBusca()  # ninguém (oficial) vendendo agora: "sumiu da busca"
         produto = self._produtos.get(produto_id) or ProdutoML(

@@ -328,11 +328,13 @@ def test_ml_busca_pelo_catalogo(monkeypatch, tmp_path):
         # MLB3: ninguém vendendo ("No winners found") -> só não entra
     }, chamadas))
     res = ml.FonteMercadoLivre().buscar("sauvage dior")
-    assert not res.erro and len(res.achados) == 1
-    a = res.achados[0]
+    assert not res.erro and len(res.achados) == 2
+    a, comum = res.achados
     assert (a.titulo, a.url, a.preco, a.preco_de, a.oficial, a.ml, a.marca) == (
         "Perfume Sauvage Dior Eau de Parfum 100ml", "https://www.mercadolivre.com.br/p/MLB1", 520.0, 799.0,
         True, 100.0, "Dior")
+    # vendedor comum mais barato: vem junto (pro /locate), com o link do anúncio dele e sem selo de oficial
+    assert (comum.url, comum.preco, comum.oficial) == ("https://produto.mercadolivre.com.br/MLB-10-_JM", 450.0, False)
     caminhos = [c[0] for c in chamadas]
     assert caminhos == ["/products/search", "/products/MLB1/items", "/products/MLB3/items"]
     assert chamadas[0][1] == {"status": "active", "site_id": "MLB", "q": "sauvage dior"}
@@ -349,7 +351,7 @@ def test_ml_busca_procura_loja_oficial_na_pagina_seguinte(monkeypatch, tmp_path)
         "/products/MLB1/items": lambda params: ((pag2 if (params or {}).get("offset") else pag1), None, False),
     }))
     res = ml.FonteMercadoLivre().buscar("sauvage")
-    assert [a.preco for a in res.achados] == [520.0]
+    assert [(a.preco, a.oficial) for a in res.achados] == [(520.0, True), (450.0, False)]
 
 
 def test_ml_api_recusada(monkeypatch, tmp_path):
@@ -404,7 +406,7 @@ def test_ml_varredura_pelos_mais_vendidos(monkeypatch, tmp_path):
     tarefas = fonte.tarefas_varredura()
     assert [r for r, _ in tarefas] == ["ML mais vendidos (descobrindo categorias)", 'ML "perfume masculino" pág. 1']
     res = tarefas[0][1]()
-    assert [(a.url, a.preco) for a in res.achados] == [("https://www.mercadolivre.com.br/p/MLB1", 520.0)]
+    assert [(a.url, a.preco) for a in res.achados if a.oficial] == [("https://www.mercadolivre.com.br/p/MLB1", 520.0)]
     # da próxima vez, uma tarefa por categoria
     tarefas = fonte.tarefas_varredura()
     assert [r for r, _ in tarefas] == ["ML mais vendidos MLB6284", "ML mais vendidos MLB6285",
@@ -483,7 +485,7 @@ def test_ml_categoria_sem_lista_nao_fecha_as_outras(monkeypatch, tmp_path):
     fonte = ml.FonteMercadoLivre()
     assert fonte._descobrir_categorias("TOKEN") == ["MLB6284", "MLB6285"]  # sem kit e infantil
     assert fonte._mais_vendidos(0).pulado
-    assert [a.preco for a in fonte._mais_vendidos(1).achados] == [520.0]
+    assert [a.preco for a in fonte._mais_vendidos(1).achados if a.oficial] == [520.0]
 
 
 def test_ml_resposta_estranha_nao_quebra(monkeypatch, tmp_path):
@@ -532,7 +534,7 @@ def test_ml_erros_de_rede_seguidos_param_a_tarefa(monkeypatch, tmp_path):
     }, chamadas))
     res = ml.FonteMercadoLivre().buscar("sauvage")
     assert len(chamadas) == 4  # parou depois de 2 erros de rede seguidos
-    assert [a.preco for a in res.achados] == [520.0] and not res.erro  # entrega o que deu
+    assert [a.preco for a in res.achados if a.oficial] == [520.0] and not res.erro  # entrega o que deu
 
 
 def test_ml_renovacao_do_login_falhou_ou_foi_recusada(monkeypatch, tmp_path):
@@ -614,7 +616,8 @@ def test_ml_canal_masculino(monkeypatch, tmp_path):
     chamadas.clear()
     fonte._pagina("perfume", 0)
     assert "/products/MLB1/items" not in [c[0] for c in chamadas]
-    assert len(fonte.buscar("perfume").achados) == 2
+    assert {a.url for a in fonte.buscar("perfume").achados if a.oficial} == {
+        "https://www.mercadolivre.com.br/p/MLB1", "https://www.mercadolivre.com.br/p/MLB2"}
 
 
 # ============================================================
@@ -629,3 +632,17 @@ def test_vtex_genero():
     assert vtex.genero_vtex({}) is None
     produto = dict(PRODUTO_VTEX, categories=["/Perfumes/Perfume Masculino/"])
     assert {a.genero for a in vtex.achados_do_produto(produto, "www.loja.com.br", "Loja")} == {"m"}
+
+
+def test_ml_so_vendedor_comum():
+    fonte = ml.FonteMercadoLivre()
+    produto = ml.ProdutoML("MLB1", "Perfume Queening Mind Games EDP 100ml")
+    comuns = [ml.OfertaML(300, None, False, "MLB55"), ml.OfertaML(320, None, False, "MLB56")]
+    # ninguém oficial: só o comum mais barato (não vai pro canal, mas aparece no /locate)
+    assert [(a.url, a.oficial) for a in fonte._escolher(produto, comuns)] == [
+        ("https://produto.mercadolivre.com.br/MLB-55-_JM", False)]
+    # oficial mais barato que todo mundo: só ele
+    oficial = ml.OfertaML(280, None, True, "MLB57")
+    assert [a.url for a in fonte._escolher(produto, [oficial] + comuns)] == ["https://www.mercadolivre.com.br/p/MLB1"]
+    # sem o filtro de loja oficial na fonte: o mais barato, com o link do produto
+    assert [a.preco for a in ml.FonteMercadoLivre(so_loja_oficial=False)._escolher(produto, comuns)] == [300]
