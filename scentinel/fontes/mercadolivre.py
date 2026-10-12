@@ -509,6 +509,8 @@ class FonteMercadoLivre:
             if so_publico and self._so_masculino and produto.genero == "f":
                 continue
             produtos.append(produto)
+        if self._so_masculino:  # feminino vai pro fim: não toma a vaga do masculino (o /locate ainda vê)
+            produtos.sort(key=lambda p: p.genero == "f")
         produtos = produtos[: self.max_produtos]
         if not produtos:
             return ResultadoBusca()
@@ -516,7 +518,7 @@ class FonteMercadoLivre:
         return self._achados_dos_produtos(produtos, token)
 
     def sabe_reler(self, achado):
-        return self.modo != "html" and produto_do_link(achado.url) is not None
+        return self.modo != "html" and _tem_token_salvo() and produto_do_link(achado.url) is not None
 
     def reler(self, achado):
         """Checagem de sanidade: relê só esse produto (1 chamada), em vez de refazer a busca inteira."""

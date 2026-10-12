@@ -525,3 +525,36 @@ def test_checagem_de_sanidade_rele_so_o_produto(amb):
     f.varredura = [pagina(achado("Sauvage Dior Eau de Parfum 100ml", 340, "Loja A", "https://a/s"))]
     rodar(amb.desc.varredura())
     assert f.relidos == ["https://a/s"]
+
+
+def test_feminino_em_tamanho_fora_do_catalogo_tambem_fica_de_fora(amb):
+    amb.desc.itens.append(GOOD_GIRL)
+    # 30 ml não está no catálogo (só 80): o item é solto, mas o público dele ainda vale
+    amb.a.varredura = [pagina(achado("Good Girl Carolina Herrera EDP 30ml", 150, "Loja A", "https://a/gg30",
+                                     preco_de=400))]
+    rodar(amb.desc.varredura())
+    assert amb.alertas == [] and db.anuncio_por_url(amb.con, "https://a/gg30") is None
+
+
+def test_rede_caindo_pausa_pouco(amb):
+    from scentinel.descoberta import ERROS_PRA_PAUSAR
+
+    amb.a.programar("sauvage dior edp", erro="erro de conexão: ConnectionError")
+    for _ in range(ERROS_PRA_PAUSAR):
+        rodar(amb.desc.buscar_item(ITENS[0], amb.a))
+    pausa = amb.desc._fonte_pausada_ate["vtex:a"] - amb.relogio.agora
+    assert timedelta(minutes=59) < pausa <= timedelta(hours=1)  # rede: volta em 1 h
+    amb.b.programar("sauvage dior edp", erro="HTTP 404")
+    for _ in range(ERROS_PRA_PAUSAR):
+        rodar(amb.desc.buscar_item(ITENS[0], amb.b))
+    assert amb.desc._fonte_pausada_ate["vtex:b"] - amb.relogio.agora == timedelta(hours=24)  # busca não existe
+
+
+def test_login_vencido_depois_de_limite_ainda_avisa(amb):
+    amb.a.varredura = [ResultadoBusca(erro="api: devagar (HTTP 429)", bloqueado=True, pausa_horas=0.5)]
+    rodar(amb.desc.varredura())
+    assert amb.avisos == []  # limite de velocidade: só no log
+    amb.relogio.agora += timedelta(hours=2)
+    amb.a.varredura = [ResultadoBusca(erro="api: o login do ML venceu (HTTP 401)", bloqueado=True)]
+    rodar(amb.desc.varredura(forcar=True))
+    assert len(amb.avisos) == 1 and "401" in amb.avisos[0]

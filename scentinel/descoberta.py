@@ -30,6 +30,12 @@ PRECO_SUSPEITO = 0.35  # perfume do catálogo a menos de 35% do normal: quase ce
 TEMPO_MAX_AO_VIVO_S = 40  # /locate: loja que não respondeu nisso fica de fora da resposta
 
 
+def _passageiro(erro):
+    """Erro de rede ou da loja fora do ar (não é a busca que não existe)."""
+    texto = (erro or "").lower()
+    return any(x in texto for x in ("conexão", "timeout", "renovar", "http 5"))
+
+
 def _como_refazer(fonte, achado, padrao):
     """Pra checagem de sanidade: relê só esse produto quando a loja sabe (ML: 1 chamada);
     senão refaz a busca inteira."""
@@ -67,6 +73,7 @@ class Descoberta:
         self._fonte_pausada_ate = {}  # fonte.id -> datetime
         self._fonte_falhas = {}  # bloqueios seguidos
         self._fonte_erros = {}  # erros seguidos (loja fora do ar, endpoint que não existe...)
+        self._fonte_avisada = {}  # último bloqueio avisado no canal (avisa de novo só se mudar)
         self._ultima_varredura = None
         self.trava_varredura = asyncio.Lock()  # uma varredura por vez (loop e /varrer)
         self._em_segundo_plano = set()
@@ -91,7 +98,10 @@ class Descoberta:
             base = res.pausa_horas or self.cacador.cfg.backoff_horas
             horas = min(base * 2 ** (falhas - 1), self.cacador.cfg.backoff_max_horas)
             self._fonte_pausada_ate[fonte.id] = agora + timedelta(hours=horas)
-            if falhas == 1 and self.enviar_aviso and not res.pausa_horas:  # limite de velocidade: só no log
+            # avisa uma vez por tipo de bloqueio (ex.: depois de um 429, um "login venceu" ainda avisa);
+            # limite de velocidade (pausa curta) fica só no log
+            if self.enviar_aviso and not res.pausa_horas and self._fonte_avisada.get(fonte.id) != res.erro:
+                self._fonte_avisada[fonte.id] = res.erro
                 await self.enviar_aviso(
                     f"🚫 **{fonte.nome}** bloqueou a busca ({res.erro}). Pausei essa loja por {horas:g} h, sem forçar."
                 )
@@ -101,11 +111,14 @@ class Descoberta:
             erros = self._fonte_erros.get(fonte.id, 0) + 1
             self._fonte_erros[fonte.id] = erros
             if erros >= ERROS_PRA_PAUSAR:
-                self._fonte_pausada_ate[fonte.id] = agora + timedelta(hours=24)
+                # rede caiu / loja fora do ar: volta logo; erro que se repete (busca que não existe): 24 h
+                horas = 1 if _passageiro(res.erro) else 24
+                self._fonte_pausada_ate[fonte.id] = agora + timedelta(hours=horas)
                 self._fonte_erros[fonte.id] = 0
-                return False, f"⏸️ {fonte.nome}: {erros} erros seguidos ({res.erro}), pausada por 24 h"
+                return False, f"⏸️ {fonte.nome}: {erros} erros seguidos ({res.erro}), pausada por {horas} h"
             return False, f"❌ {fonte.nome}: {res.erro}"
         self._fonte_erros.pop(fonte.id, None)
+        self._fonte_avisada.pop(fonte.id, None)
         return True, None
 
     # ------------------------------------------------------------
@@ -194,12 +207,12 @@ class Descoberta:
         ml = achado.ml or catalogo.extrair_ml(achado.variacao or "") or catalogo.extrair_ml(achado.titulo)
         if not ml or ml < self.cfg.ml_min or achado.preco < self.cfg.preco_min:
             return None
+        if not self.no_publico(achado, item):  # antes de soltar o item: Good Girl 30ml continua feminino
+            return None
         if item and item.ml and ml not in item.ml:
             if so_item is not None:
                 return None
             item = None  # tamanho fora do catálogo: trata como perfume qualquer
-        if not self.no_publico(achado, item):
-            return None
         if item:
             ref = item.referencia_para(ml)
             if ref and achado.preco < ref * PRECO_SUSPEITO:

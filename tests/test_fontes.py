@@ -646,3 +646,22 @@ def test_ml_so_vendedor_comum():
     assert [a.url for a in fonte._escolher(produto, [oficial] + comuns)] == ["https://www.mercadolivre.com.br/p/MLB1"]
     # sem o filtro de loja oficial na fonte: o mais barato, com o link do produto
     assert [a.preco for a in ml.FonteMercadoLivre(so_loja_oficial=False)._escolher(produto, comuns)] == [300]
+
+
+def test_ml_sem_login_nao_tenta_reler(monkeypatch, tmp_path):
+    a = ml.Achado("Perfume X", "https://www.mercadolivre.com.br/x/p/MLB1", 100, "Mercado Livre")
+    assert not ml.FonteMercadoLivre().sabe_reler(a)  # sem login: refaz a busca da página
+    _com_login(monkeypatch, tmp_path)
+    assert ml.FonteMercadoLivre().sabe_reler(a)
+
+
+def test_ml_canal_masculino_feminino_vai_pro_fim(monkeypatch, tmp_path):
+    _com_login(monkeypatch, tmp_path)
+    chamadas = []
+    busca = {"results": [_produto_bruto(f"MLB{i}", f"212 VIP Rosé EDP {i}0ml", "Carolina Herrera", genero="Feminino")
+                         for i in range(1, 6)] + [_produto_bruto("MLB9", "212 VIP Men EDT 100ml", genero="Masculino")]}
+    monkeypatch.setattr(ml, "baixar_json", _api_falsa({"/products/search": (busca, None, False)}, chamadas))
+    fonte = ml.FonteMercadoLivre(max_produtos=2)
+    fonte.publico = "masculino"
+    fonte.buscar("212 vip")
+    assert [c[0] for c in chamadas][1] == "/products/MLB9/items"  # o masculino entra primeiro
