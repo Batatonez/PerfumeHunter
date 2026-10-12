@@ -133,3 +133,30 @@ def test_comando_testar_usa_o_modulo_lojas():
     import scentinel.__main__ as cli
 
     assert isinstance(cli.lojas, types.ModuleType) and callable(cli.testar_lojas)
+
+
+def test_locate_com_erro_nao_fica_procurando():
+    """Se algo quebrar no meio, a resposta vira uma mensagem de erro (não fica em 'procurando...')."""
+    import asyncio
+    from types import SimpleNamespace
+
+    from scentinel.bot import BotScentinel, registrar_comandos
+
+    bot = BotScentinel(config.carregar_config(), config.Segredos("x", 1, 2, 3), db.conectar(":memory:"))
+    registrar_comandos(bot.tree)
+    edicoes = []
+
+    async def defer(**kw):
+        pass
+
+    async def editar(**kw):
+        edicoes.append(kw)
+
+    async def quebra(*a, **k):
+        raise RuntimeError("loja doida")
+
+    bot.descoberta.buscar_ao_vivo = quebra
+    interacao = SimpleNamespace(client=bot, response=SimpleNamespace(defer=defer), edit_original_response=editar)
+    asyncio.run(bot.tree.get_command("locate").callback(interacao, nome="sauvage"))
+    assert "procurando" in edicoes[0]["content"]
+    assert edicoes[-1]["content"].startswith("❌ Deu erro procurando **sauvage**")

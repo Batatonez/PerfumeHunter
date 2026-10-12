@@ -400,15 +400,18 @@ def test_ml_varredura_pelos_mais_vendidos(monkeypatch, tmp_path):
         "/products/MLB1/items": (ITENS_P1, None, False),
     }, chamadas))
     fonte = ml.FonteMercadoLivre(termos_varredura=["perfume masculino"])
+    # 1ª varredura: ainda não sabe as categorias -> uma tarefa descobre e já faz a primeira
     tarefas = fonte.tarefas_varredura()
-    rotulos = [r for r, _ in tarefas]
-    assert rotulos[:6] == [f"ML mais vendidos #{i}" for i in range(1, 7)] and rotulos[6:] == [
-        'ML "perfume masculino" pág. 1']
+    assert [r for r, _ in tarefas] == ["ML mais vendidos (descobrindo categorias)", 'ML "perfume masculino" pág. 1']
     res = tarefas[0][1]()
     assert [(a.url, a.preco) for a in res.achados] == [("https://www.mercadolivre.com.br/p/MLB1", 520.0)]
-    assert fonte._descobrir_categorias("TOKEN") == ["MLB6284", "MLB6285", "MLB6286"]
-    # a 4ª categoria não existe: tarefa vazia, sem erro
-    assert tarefas[3][1]().achados == [] and not tarefas[3][1]().erro
+    # da próxima vez, uma tarefa por categoria
+    tarefas = fonte.tarefas_varredura()
+    assert [r for r, _ in tarefas] == ["ML mais vendidos MLB6284", "ML mais vendidos MLB6285",
+                                       "ML mais vendidos MLB6286", 'ML "perfume masculino" pág. 1']
+    # categoria sem lista (404): pulada, sem contar como sucesso nem erro
+    res = tarefas[1][1]()
+    assert res.pulado and not res.erro
     # nome e foto do produto ficam guardados: na próxima varredura não pede /products/MLB1 de novo
     chamadas.clear()
     tarefas[0][1]()
@@ -425,9 +428,10 @@ def test_ml_mais_vendidos_fechado_nao_pausa_a_loja(monkeypatch, tmp_path):
     }, chamadas))
     fonte = ml.FonteMercadoLivre()
     res = fonte._mais_vendidos(0)
-    assert not res.erro and not res.bloqueado and res.achados == []
+    assert res.pulado and not res.erro and not res.bloqueado and res.achados == []
     chamadas.clear()
-    assert fonte._mais_vendidos(0).achados == [] and chamadas == []  # nem tenta de novo hoje
+    assert fonte._mais_vendidos(0).pulado and chamadas == []  # nem tenta de novo hoje
+    assert not any("mais vendidos" in r for r, _ in fonte.tarefas_varredura())  # nem entra na lista
 
 
 def test_ml_sem_login_varredura_so_pela_pagina(monkeypatch):
@@ -478,7 +482,7 @@ def test_ml_categoria_sem_lista_nao_fecha_as_outras(monkeypatch, tmp_path):
     }))
     fonte = ml.FonteMercadoLivre()
     assert fonte._descobrir_categorias("TOKEN") == ["MLB6284", "MLB6285"]  # sem kit e infantil
-    assert fonte._mais_vendidos(0).achados == []
+    assert fonte._mais_vendidos(0).pulado
     assert [a.preco for a in fonte._mais_vendidos(1).achados] == [520.0]
 
 
@@ -495,3 +499,133 @@ def test_ml_resposta_estranha_nao_quebra(monkeypatch, tmp_path):
     monkeypatch.setattr(ml, "baixar_json", _api_falsa({"/products/search": (["lista"], None, False)}))
     assert ml.FonteMercadoLivre().buscar("sauvage").achados == []
     assert ml.ofertas_do_produto(None) == [] and ml.ofertas_do_produto([1, 2]) == []
+
+
+# ============================================================
+# ML: erros no meio da busca, renovação do login, limite de velocidade, público
+# ============================================================
+
+def test_ml_para_no_primeiro_erro_grave(monkeypatch, tmp_path):
+    _com_login(monkeypatch, tmp_path)
+    chamadas = []
+    busca = {"results": [_produto_bruto(f"MLB{i}", f"Perfume Sauvage Dior EDP {i}00ml") for i in range(1, 6)]}
+    monkeypatch.setattr(ml, "baixar_json", _api_falsa({
+        "/products/search": (busca, None, False),
+        "/products/MLB1/items": (ITENS_P1, None, False),
+        "/products/MLB2/items": (None, "bloqueado (HTTP 429)", True),
+    }, chamadas))
+    res = ml.FonteMercadoLivre().buscar("sauvage")
+    # 429 no 2º produto: para ali (não martela os outros) e pede pausa curta, sem aviso no canal
+    assert [c[0] for c in chamadas] == ["/products/search", "/products/MLB1/items", "/products/MLB2/items"]
+    assert res.bloqueado and res.pausa_horas == 0.5 and "429" in res.erro
+
+
+def test_ml_erros_de_rede_seguidos_param_a_tarefa(monkeypatch, tmp_path):
+    _com_login(monkeypatch, tmp_path)
+    chamadas = []
+    busca = {"results": [_produto_bruto(f"MLB{i}", f"Perfume Sauvage Dior EDP {i}00ml") for i in range(1, 6)]}
+    monkeypatch.setattr(ml, "baixar_json", _api_falsa({
+        "/products/search": (busca, None, False),
+        "/products/MLB1/items": (ITENS_P1, None, False),
+        "/products/MLB2/items": (None, "erro de conexão: ReadTimeout", False),
+        "/products/MLB3/items": (None, "erro de conexão: ReadTimeout", False),
+    }, chamadas))
+    res = ml.FonteMercadoLivre().buscar("sauvage")
+    assert len(chamadas) == 4  # parou depois de 2 erros de rede seguidos
+    assert [a.preco for a in res.achados] == [520.0] and not res.erro  # entrega o que deu
+
+
+def test_ml_renovacao_do_login_falhou_ou_foi_recusada(monkeypatch, tmp_path):
+    import json
+
+    arq = tmp_path / "ml_token.json"
+    arq.write_text(json.dumps({"access_token": "VELHO", "refresh_token": "R", "expira_em": 0}))
+    monkeypatch.setattr(ml, "ARQ_TOKEN", arq)
+    monkeypatch.setenv("ML_CLIENT_ID", "1")
+    monkeypatch.setenv("ML_CLIENT_SECRET", "2")
+    app = []
+    monkeypatch.setattr(ml.coleta._sessao, "post", lambda *a, **k: app.append(1))  # token do app: não pode
+    # rede caiu na renovação: erro comum (tenta de novo), sem pausar nem mandar refazer o login
+    monkeypatch.setattr(ml, "_pedir_token", lambda campos: ({"message": "ConnectionError"}, 0))
+    res = ml.FonteMercadoLivre().buscar("sauvage")
+    assert res.erro and not res.bloqueado and "renovar" in res.erro and app == []
+    # o ML recusou a renovação: aí sim pausa e avisa pra refazer o login
+    monkeypatch.setattr(ml, "_pedir_token", lambda campos: ({"error": "invalid_grant"}, 400))
+    res = ml.FonteMercadoLivre().buscar("sauvage")
+    assert res.bloqueado and "ml-login" in res.erro and app == []
+    assert json.loads(arq.read_text())["refresh_token"] == "R"  # não estraga o arquivo
+
+
+def test_ml_rele_so_um_produto(monkeypatch, tmp_path):
+    _com_login(monkeypatch, tmp_path)
+    chamadas = []
+    monkeypatch.setattr(ml, "baixar_json", _api_falsa({"/products/MLB1/items": (ITENS_P1, None, False)}, chamadas))
+    fonte = ml.FonteMercadoLivre()
+    velho = ml.achado_do_produto(ml.ProdutoML("MLB1", "Perfume Sauvage Dior EDP 100ml"), ml.OfertaML(400, None, True))
+    assert fonte.sabe_reler(velho) and not fonte.sabe_reler(ml.Achado("x", "https://x/MLB-2", 1, "ML"))
+    res = fonte.reler(velho)
+    assert [c[0] for c in chamadas] == ["/products/MLB1/items"]
+    assert [(a.url, a.preco) for a in res.achados] == [("https://www.mercadolivre.com.br/p/MLB1", 520.0)]
+
+
+def test_ml_mais_vendidos_429_vira_pausa_curta(monkeypatch, tmp_path):
+    _com_login(monkeypatch, tmp_path)
+    monkeypatch.setattr(ml, "baixar_json", _api_falsa({
+        "/categories/MLB1246": ({"children_categories": [{"id": "MLB6284", "name": "Perfumes"}]}, None, False),
+        "/highlights/MLB/category/MLB6284": (None, "bloqueado (HTTP 429)", True),
+    }))
+    res = ml.FonteMercadoLivre()._mais_vendidos(0)
+    assert res.bloqueado and res.pausa_horas == 0.5
+
+
+def test_ml_categorias_com_erro_tenta_de_novo_logo(monkeypatch, tmp_path):
+    import time as _time
+
+    _com_login(monkeypatch, tmp_path)
+    monkeypatch.setattr(ml, "baixar_json", _api_falsa({
+        "/categories/MLB1246": ({"children_categories": [{"id": "MLB6284", "name": "Perfumes"}]}, None, False),
+        "/categories/MLB6284": (None, "erro de conexão: ReadTimeout", False),
+    }))
+    fonte = ml.FonteMercadoLivre()
+    assert fonte._descobrir_categorias("T") == ["MLB6284"]
+    assert fonte._categorias_ate - _time.time() < 3700  # só 1 h (não 1 semana) porque deu erro no caminho
+
+
+def test_ml_canal_masculino(monkeypatch, tmp_path):
+    _com_login(monkeypatch, tmp_path)
+    p = ml.produto_do_catalogo(_produto_bruto("MLB1", "Good Girl Carolina Herrera EDP 80ml", genero="Feminino"))
+    assert p.genero == "f" and ml.achado_do_produto(p, ml.OfertaML(1, None, True)).genero == "f"
+    chamadas = []
+    monkeypatch.setattr(ml, "baixar_json", _api_falsa({
+        "/categories/MLB1246": ({"children_categories": [{"id": "MLB6284", "name": "Perfumes"}]}, None, False),
+        "/categories/MLB6284": ({"children_categories": [
+            {"id": "MLB6285", "name": "Masculinos"}, {"id": "MLB6286", "name": "Femininos"}]}, None, False),
+        "/products/search": ({"results": [
+            _produto_bruto("MLB1", "Good Girl EDP 80ml", "Carolina Herrera", genero="Feminino"),
+            _produto_bruto("MLB2", "Perfume Sauvage Dior EDP 100ml", genero="Masculino")]}, None, False),
+        "/products/MLB1/items": (ITENS_P1, None, False),
+        "/products/MLB2/items": (ITENS_P1, None, False),
+    }, chamadas))
+    fonte = ml.FonteMercadoLivre(termos_varredura=["perfume masculino", "perfume feminino"])
+    fonte.publico = "masculino"
+    assert fonte._descobrir_categorias("T") == ["MLB6284", "MLB6285"]  # pula a feminina
+    assert [r for r, _ in fonte.tarefas_varredura() if "pág" in r] == ['ML "perfume masculino" pág. 1']
+    # na varredura, nem abre os vendedores do feminino; no /locate (buscar) mostra tudo
+    chamadas.clear()
+    fonte._pagina("perfume", 0)
+    assert "/products/MLB1/items" not in [c[0] for c in chamadas]
+    assert len(fonte.buscar("perfume").achados) == 2
+
+
+# ============================================================
+# VTEX: público pelo que a loja cadastrou
+# ============================================================
+
+def test_vtex_genero():
+    assert vtex.genero_vtex({"categories": ["/Perfumes/Perfumes Femininos/", "/Perfumes/"]}) == "f"
+    assert vtex.genero_vtex({"Gênero": ["Masculino"], "categories": ["/Perfumes/Femininos/"]}) == "m"
+    assert vtex.genero_vtex({"properties": [{"name": "Gênero", "values": ["Unissex"]}]}) == "u"
+    assert vtex.genero_vtex({"categories": ["/Perfumes/Masculino/", "/Perfumes/Feminino/"]}) == "u"
+    assert vtex.genero_vtex({}) is None
+    produto = dict(PRODUTO_VTEX, categories=["/Perfumes/Perfume Masculino/"])
+    assert {a.genero for a in vtex.achados_do_produto(produto, "www.loja.com.br", "Loja")} == {"m"}

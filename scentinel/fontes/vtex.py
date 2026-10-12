@@ -12,6 +12,7 @@ Cada SKU (tamanho) vira um Achado separado.
 
 from urllib.parse import urljoin
 
+from scentinel import catalogo
 from scentinel.coleta import texto_para_preco
 from scentinel.fontes import Achado, ResultadoBusca, baixar_json, registrar
 from scentinel.lojas import nome_da_loja
@@ -55,11 +56,30 @@ def _pix(oferta, preco):
     return None
 
 
+_CAMPOS_GENERO = {"genero", "sexo", "publico", "para quem", "indicado para", "gender"}
+
+
+def genero_vtex(produto):
+    """Público do perfume pelo que a loja cadastrou: especificação (Gênero/Sexo/Público) ou categoria."""
+    textos = []
+    for chave, valor in produto.items():  # API de catálogo: especificação vira campo do produto
+        if isinstance(chave, str) and isinstance(valor, list) and catalogo.texto_titulo(chave) in _CAMPOS_GENERO:
+            textos += [str(v) for v in valor]
+    for prop in produto.get("properties") or []:  # busca inteligente
+        if isinstance(prop, dict) and catalogo.texto_titulo(prop.get("name")) in _CAMPOS_GENERO:
+            textos += [str(v) for v in prop.get("values") or []]
+    genero = catalogo.genero_do_texto(*textos) if textos else None
+    if genero:
+        return genero
+    return catalogo.genero_do_texto(*(c for c in produto.get("categories") or [] if isinstance(c, str)))
+
+
 def achados_do_produto(produto, dominio, loja, marca_padrao=None, so_loja_propria=True):
     titulo_base = produto.get("productName") or ""
     marca = produto.get("brand") or marca_padrao
     link = produto.get("link") or (f"/{produto['linkText']}/p" if produto.get("linkText") else "")
     link = urljoin(f"https://{dominio}/", link)
+    genero = genero_vtex(produto)
     saida = []
     for item in produto.get("items") or []:
         escolhido = _oferta_do_sku(item, so_loja_propria)
@@ -81,7 +101,7 @@ def achados_do_produto(produto, dominio, loja, marca_padrao=None, so_loja_propri
         saida.append(Achado(
             titulo=titulo, url=url, preco=preco, loja=loja, marca=marca, preco_de=preco_de,
             preco_pix=_pix(oferta, preco), disponivel=disponivel, oficial=oficial, variacao=item.get("name"),
-            imagem=imagem,
+            imagem=imagem, genero=genero,
         ))
     return saida
 

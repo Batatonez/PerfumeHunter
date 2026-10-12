@@ -211,7 +211,7 @@ def pagina(*achados):
 
 def test_varredura_posta_perfume_fora_do_catalogo(amb):
     amb.a.varredura = [pagina(
-        achado("Perfume Lumina Queening Le Parfum Feminino EDP 100ml", 199.9, "Loja A", "https://a/q",
+        achado("Perfume Lumina Queening Le Parfum Masculino EDP 100ml", 199.9, "Loja A", "https://a/q",
                preco_de=399.9, imagem="https://img/q.jpg", oficial=True),
         achado("Hidratante Corporal Perfumado 400ml", 30, "Loja A", "https://a/h", preco_de=60),
         achado("Kit Perfume Good Girl + Loção", 300, "Loja A", "https://a/kit", preco_de=600),
@@ -279,7 +279,7 @@ def test_varredura_usa_catalogo_quando_reconhece(amb):
 # ============================================================
 
 def test_busca_ao_vivo(amb):
-    amb.a.programar("queening", achado("Lumina Queening EDP Feminino 100ml", 210, "Loja A", "https://a/q", preco_de=300),
+    amb.a.programar("queening", achado("Lumina Queening EDP Masculino 100ml", 210, "Loja A", "https://a/q", preco_de=300),
                     achado("Body Splash Queening 200ml", 50, "Loja A", "https://a/bs"))
     amb.b.programar("queening", achado("Perfume Lumina Queening Eau de Parfum 100ml", 189.9, "Loja B", "https://b/q"),
                     achado("Outro Perfume Qualquer 100ml", 99, "Loja B", "https://b/x"))
@@ -390,3 +390,138 @@ def test_contratipo_e_refil_nao_entram(amb):
     )]
     rodar(amb.desc.varredura())
     assert amb.alertas == []
+
+
+# ============================================================
+# Canal só de perfume masculino (publico = "masculino")
+# ============================================================
+
+GOOD_GIRL = ItemCatalogo("good-girl", "Good Girl", "Carolina Herrera", "EDP", [80], "fem", "designer", 700, 80, 520,
+                         busca=["good girl carolina herrera"])
+
+
+def test_canal_masculino_nao_posta_feminino(amb):
+    assert amb.cfg.descoberta.publico == "masculino"  # padrão do config.toml
+    amb.a.varredura = [pagina(
+        achado("Perfume Lumina Aurora Feminino EDP 100ml", 150, "Loja A", "https://a/fem", preco_de=400),
+        # o título não diz, mas a loja diz que é feminino (categoria/especificação)
+        achado("Perfume Lumina Dama EDP 100ml", 150, "Loja A", "https://a/fem2", preco_de=400, genero="f"),
+        achado("Perfume Lumina Bravo Masculino EDP 100ml", 150, "Loja A", "https://a/masc", preco_de=400),
+        achado("Perfume Lumina Duo Unissex EDP 100ml", 150, "Loja A", "https://a/uni", preco_de=400),
+        achado("Perfume Lumina Sem Genero EDP 100ml", 150, "Loja A", "https://a/sei", preco_de=400),
+    )]
+    rodar(amb.desc.varredura())
+    postados = sorted(o.url for o, _ in amb.alertas)
+    assert postados == ["https://a/masc", "https://a/sei", "https://a/uni"]
+    assert db.anuncio_por_url(amb.con, "https://a/fem") is None and db.anuncio_por_url(amb.con, "https://a/fem2") is None
+
+
+def test_canal_masculino_nem_procura_item_feminino_do_catalogo(amb):
+    amb.desc.itens.append(GOOD_GIRL)
+    amb.desc.cacador.catalogo[GOOD_GIRL.id] = GOOD_GIRL
+    amb.a.programar("good girl carolina herrera", achado("Good Girl Carolina Herrera EDP 80ml", 300, "Loja A", "https://a/gg"))
+    rodar(amb.desc.rodada())
+    assert "good girl carolina herrera" not in amb.a.chamadas
+    assert all(item.id != "good-girl" for item, _ in amb.desc.pendentes(amb.relogio.agora))
+    # e se aparecer na varredura (catálogo diz feminino, mesmo sem "feminino" no título), não entra
+    amb.a.varredura = [pagina(achado("Good Girl Carolina Herrera EDP 80ml", 300, "Loja A", "https://a/gg"))]
+    rodar(amb.desc.varredura(forcar=True))
+    assert amb.alertas == [] and db.anuncio_por_url(amb.con, "https://a/gg") is None
+
+
+def test_publico_todos_posta_feminino(amb):
+    amb.cfg.descoberta.publico = "todos"
+    amb.a.varredura = [pagina(achado("Perfume Lumina Aurora Feminino EDP 100ml", 150, "Loja A", "https://a/fem",
+                                     preco_de=400))]
+    rodar(amb.desc.varredura())
+    assert [o.url for o, _ in amb.alertas] == ["https://a/fem"]
+
+
+def test_locate_mostra_feminino_mas_nao_guarda(amb):
+    amb.a.programar("aurora", achado("Perfume Lumina Aurora Feminino EDP 100ml", 150, "Loja A", "https://a/fem"))
+
+    async def buscar_e_esperar_gravacao():
+        r = await amb.desc.buscar_ao_vivo("aurora")
+        await asyncio.gather(*amb.desc._em_segundo_plano)
+        return r
+
+    res = rodar(buscar_e_esperar_gravacao())
+    assert [a.url for a, _, _ in res.ofertas] == ["https://a/fem"]  # pesquisa mostra tudo
+    assert db.anuncio_por_url(amb.con, "https://a/fem") is None  # mas o canal masculino não rastreia
+
+
+def test_top_do_dia_sem_feminino(amb):
+    amb.cfg.descoberta.publico = "todos"
+    amb.a.varredura = [pagina(
+        achado("Perfume Lumina Aurora Feminino EDP 100ml", 150, "Loja A", "https://a/fem", preco_de=400),
+        achado("Perfume Lumina Bravo Masculino EDP 100ml", 160, "Loja A", "https://a/masc", preco_de=400),
+    )]
+    rodar(amb.desc.varredura())
+    assert len(amb.desc.top()) == 2
+    amb.cfg.descoberta.publico = "masculino"  # mudou o config: o top já não mostra o que ficou guardado
+    assert [o.url for o in amb.desc.top()] == ["https://a/masc"]
+
+
+def test_fonte_recebe_o_publico_do_canal(amb):
+    class FonteComPublico(FonteFalsa):
+        publico = "todos"
+
+    f = FonteComPublico("ml", "ML")
+    Descoberta(amb.cac, ITENS, [f])
+    assert f.publico == "masculino"
+
+
+# ============================================================
+# /locate não fica preso esperando loja lenta
+# ============================================================
+
+def test_locate_nao_espera_loja_lenta(amb, monkeypatch):
+    import time as _time
+
+    from scentinel import descoberta as mod
+
+    monkeypatch.setattr(mod, "TEMPO_MAX_AO_VIVO_S", 0.3)
+    amb.a.programar("sauvage dior", achado("Sauvage Dior EDP 100ml", 650, "Loja A", "https://a/s"))
+    lenta = amb.b.buscar
+    amb.b.buscar = lambda termo: (_time.sleep(1.5), lenta(termo))[1]
+    async def medir():
+        inicio = _time.monotonic()
+        r = await amb.desc.buscar_ao_vivo("sauvage", "dior")
+        return r, _time.monotonic() - inicio
+
+    res, levou = rodar(medir())
+    assert levou < 1.2
+    assert [a.url for a, _, _ in res.ofertas] == ["https://a/s"] and res.lojas_falha == ["Loja B"]
+
+
+def test_pulado_nao_zera_o_castigo_da_loja(amb):
+    # loja bloqueou -> 1ª pausa; depois uma tarefa "pulada" (não falou com a loja) não pode zerar a contagem
+    amb.a.varredura = [ResultadoBusca(erro="bloqueado (HTTP 429)", bloqueado=True)]
+    rodar(amb.desc.varredura())
+    assert amb.desc._fonte_falhas["vtex:a"] == 1
+    amb.relogio.agora += timedelta(hours=7)
+    amb.a.varredura = [ResultadoBusca(pulado=True)]
+    rodar(amb.desc.varredura(forcar=True))
+    assert amb.desc._fonte_falhas["vtex:a"] == 1
+    amb.a.varredura = [ResultadoBusca(erro="bloqueado (HTTP 429)", bloqueado=True)]
+    rodar(amb.desc.varredura(forcar=True))
+    assert amb.desc._fonte_falhas["vtex:a"] == 2 and len(amb.avisos) == 1  # pausa dobra, avisa uma vez só
+
+
+def test_checagem_de_sanidade_rele_so_o_produto(amb):
+    class FonteQueRele(FonteFalsa):
+        relidos = []
+
+        def sabe_reler(self, a):
+            return a.url.startswith("https://a/")
+
+        def reler(self, a):
+            self.relidos.append(a.url)
+            return ResultadoBusca(achados=[a])
+
+    f = FonteQueRele("vtex:a", "Loja A")
+    amb.desc.fontes = [f]
+    # 💎: 60% abaixo do catálogo -> rechecagem de sanidade antes de postar
+    f.varredura = [pagina(achado("Sauvage Dior Eau de Parfum 100ml", 340, "Loja A", "https://a/s"))]
+    rodar(amb.desc.varredura())
+    assert f.relidos == ["https://a/s"]

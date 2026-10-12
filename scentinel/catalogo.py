@@ -43,9 +43,22 @@ _LIXO = [
 ]
 _RE_LIXO = re.compile("|".join(_LIXO))
 
-_FEM = re.compile(r"\b(feminino|feminina|for her|woman|women|femme|pour femme|mujer|donna|lady)\b")
-_MASC = re.compile(r"\b(masculino|masculina|for him|men|man|homme|pour homme|hombre|uomo)\b")
+_FEM = re.compile(r"\b(feminin[oa]s?|for her|woman|women|femme|pour femme|mujer|donna|lady|mulher(es)?)\b")
+_MASC = re.compile(r"\b(masculin[oa]s?|for him|men|man|homme|pour homme|hombre|uomo|homem|homens)\b")
+_UNI = re.compile(r"\b(unissex|unisex|unisexo|compartilhavel)\b")
 _RE_ML = re.compile(r"(\d{1,4}(?:[.,]\d)?)\s*ml\b")
+
+
+def genero_do_texto(*textos):
+    """'f' feminino, 'm' masculino, 'u' unissex, None se o texto não diz.
+    Fala dos dois (ex.: categorias 'Feminino' e 'Masculino') conta como unissex."""
+    t = " ".join(texto_titulo(x) for x in textos if x)
+    if _UNI.search(t):
+        return "u"
+    fem, masc = bool(_FEM.search(t)), bool(_MASC.search(t))
+    if fem and masc:
+        return "u"
+    return "f" if fem else "m" if masc else None
 
 
 def texto_titulo(texto):

@@ -27,6 +27,15 @@ ERROS_PRA_PAUSAR = 3  # erros seguidos numa loja -> pausa 24 h (ela provavelment
 RELER_MESMO_PRECO_APOS = timedelta(hours=6)  # preço igual: só registra de novo depois disso
 NAO_REPOSTAR_POR = timedelta(days=7)  # mesmo anúncio a preço igual ou maior que o já postado: não reposta
 PRECO_SUSPEITO = 0.35  # perfume do catálogo a menos de 35% do normal: quase certo que não é o produto
+TEMPO_MAX_AO_VIVO_S = 40  # /locate: loja que não respondeu nisso fica de fora da resposta
+
+
+def _como_refazer(fonte, achado, padrao):
+    """Pra checagem de sanidade: relê só esse produto quando a loja sabe (ML: 1 chamada);
+    senão refaz a busca inteira."""
+    if getattr(fonte, "sabe_reler", None) and fonte.sabe_reler(achado):
+        return lambda: fonte.reler(achado)
+    return padrao
 
 
 @dataclass
@@ -62,6 +71,9 @@ class Descoberta:
         self.trava_varredura = asyncio.Lock()  # uma varredura por vez (loop e /varrer)
         self._em_segundo_plano = set()
         cacador.catalogo = {i.id: i for i in self.itens}
+        for fonte in self.fontes:  # a fonte pode economizar (ex.: ML pula a categoria feminina)
+            if hasattr(fonte, "publico"):
+                fonte.publico = self.cfg.publico
 
     # ------------------------------------------------------------
     # lojas pausadas, bloqueio e erro
@@ -76,9 +88,10 @@ class Descoberta:
         if res.bloqueado:
             falhas = self._fonte_falhas.get(fonte.id, 0) + 1
             self._fonte_falhas[fonte.id] = falhas
-            horas = min(self.cacador.cfg.backoff_horas * 2 ** (falhas - 1), self.cacador.cfg.backoff_max_horas)
+            base = res.pausa_horas or self.cacador.cfg.backoff_horas
+            horas = min(base * 2 ** (falhas - 1), self.cacador.cfg.backoff_max_horas)
             self._fonte_pausada_ate[fonte.id] = agora + timedelta(hours=horas)
-            if falhas == 1 and self.enviar_aviso:
+            if falhas == 1 and self.enviar_aviso and not res.pausa_horas:  # limite de velocidade: só no log
                 await self.enviar_aviso(
                     f"🚫 **{fonte.nome}** bloqueou a busca ({res.erro}). Pausei essa loja por {horas:g} h, sem forçar."
                 )
@@ -142,12 +155,31 @@ class Descoberta:
             self.con, nome, nome_norm, marca=achado.marca, concentracao=busca.detectar_concentracao(achado.titulo),
         )
 
+    # ------------------------------------------------------------
+    # público do canal (ex.: só masculino)
+    # ------------------------------------------------------------
+
+    def item_no_publico(self, item):
+        return self.cfg.publico != "masculino" or item.publico != "fem"
+
+    def no_publico(self, achado, item=None, titulo=None):
+        """O canal posta esse perfume? Com publico = "masculino": masculino e unissex entram;
+        feminino (pelo catálogo, pelo que a loja diz ou pelo título) fica de fora. Sem informação, entra."""
+        if self.cfg.publico != "masculino":
+            return True
+        if item:
+            return self.item_no_publico(item)
+        genero = getattr(achado, "genero", None) if achado else None
+        return (genero or catalogo.genero_do_texto(titulo or achado.titulo)) != "f"
+
     def preparar(self, achado, fonte, so_item=None):
         """Achado -> Candidato (ou None se não é perfume, é lixo, não tem tamanho, não é loja confiável...).
         so_item: busca do catálogo, só aceita esse item. Não mexe no banco (roda numa thread)."""
         if not achado.url or not achado.preco or not achado.disponivel:
             return None
         if self.cfg.so_oficial and not achado.oficial:
+            return None
+        if so_item is not None and not self.item_no_publico(so_item):
             return None
         if so_item is not None:
             ok, _ = catalogo.casar(so_item, achado.titulo, achado.marca, self.itens)
@@ -166,6 +198,8 @@ class Descoberta:
             if so_item is not None:
                 return None
             item = None  # tamanho fora do catálogo: trata como perfume qualquer
+        if not self.no_publico(achado, item):
+            return None
         if item:
             ref = item.referencia_para(ml)
             if ref and achado.preco < ref * PRECO_SUSPEITO:
@@ -303,6 +337,8 @@ class Descoberta:
                 except Exception:
                     log.exception("erro na varredura %s", rotulo)
                     continue
+                if res.pulado:  # não falou com a loja: não conta nem como sucesso nem como erro
+                    continue
                 ok, linha = await self._tratar_resultado(fonte, res, self.cacador.relogio())
                 if not ok:
                     linhas.append(linha)
@@ -313,7 +349,7 @@ class Descoberta:
                 # casar título com catálogo é pesado: roda fora do loop do Discord
                 for c in await asyncio.to_thread(self.preparar_lote, res.achados, fonte):
                     if self._vale_rastrear(c):
-                        c.refazer = tarefa
+                        c.refazer = _como_refazer(fonte, c.achado, tarefa)
                         candidatos.append(c)
                         novos += 1
                 log.info("🧹 %s: %d produto(s), %d perfume(s) em oferta", rotulo, len(res.achados), novos)
@@ -337,7 +373,7 @@ class Descoberta:
             if self.pausada(fonte, agora):
                 continue
             for item in self.itens:
-                if not fonte_busca_item(fonte, item):
+                if not fonte_busca_item(fonte, item) or not self.item_no_publico(item):
                     continue
                 ultima = db.ultima_busca(self.con, item.id, fonte.id)
                 if ultima is None or agora - ultima >= intervalo:
@@ -372,7 +408,7 @@ class Descoberta:
         if not escolhidos:
             return [f"· {item.nome_exibicao} @ {fonte.nome}: nada ({len(res.achados)} resultados)"]
         for c in escolhidos:
-            c.refazer = lambda f=fonte, t=termo: f.buscar(t)
+            c.refazer = _como_refazer(fonte, c.achado, lambda f=fonte, t=termo: f.buscar(t))
         return await self._processar(escolhidos, agora)
 
     async def rodada(self, max_buscas=None, max_segundos=None):
@@ -423,7 +459,8 @@ class Descoberta:
         if not consulta or not fontes:
             return resultado
         respostas = await asyncio.gather(
-            *(asyncio.to_thread(f.buscar, consulta) for f in fontes), return_exceptions=True
+            *(asyncio.wait_for(asyncio.to_thread(f.buscar, consulta), TEMPO_MAX_AO_VIVO_S) for f in fontes),
+            return_exceptions=True,
         )
         self.cacador._ultimo_request = time.monotonic()
         agora = self.cacador.relogio()
@@ -434,6 +471,10 @@ class Descoberta:
         candidatos, ofertas = [], []
         for fonte, res in zip(fontes, respostas):
             if isinstance(res, Exception):
+                if isinstance(res, TimeoutError):
+                    log.info("/locate: %s não respondeu em %d s", fonte.nome, TEMPO_MAX_AO_VIVO_S)
+                else:
+                    log.warning("/locate: erro em %s: %r", fonte.nome, res)
                 resultado.lojas_falha.append(fonte.nome)
                 continue
             ok, _ = await self._tratar_resultado(fonte, res, agora)
@@ -469,7 +510,7 @@ class Descoberta:
             for a, fonte in pares:
                 c = self.preparar(a, fonte)
                 if c:
-                    c.refazer = lambda f=fonte, q=consulta: f.buscar(q)
+                    c.refazer = _como_refazer(fonte, c.achado, lambda f=fonte, q=consulta: f.buscar(q))
                     cands.append(c)
             if cands:
                 await self._processar(cands, agora, avisar=False)
@@ -486,6 +527,9 @@ class Descoberta:
         agora = self.cacador.relogio()
         melhores = {}
         for anuncio in db.anuncios_descobertos_recentes(self.con, agora - timedelta(hours=horas)):
+            item = self.cacador.catalogo.get(anuncio.get("catalogo_id"))
+            if not self.no_publico(None, item, titulo=anuncio.get("titulo") or anuncio.get("perfume_nome") or ""):
+                continue
             oferta = self.cacador.oferta_atual(anuncio)
             if not oferta or oferta.esgotado or not oferta.avaliacao.nivel:
                 continue

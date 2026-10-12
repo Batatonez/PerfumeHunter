@@ -22,6 +22,16 @@ DELAY_MIN_S = 5
 log = logging.getLogger("scentinel")
 
 
+def _publico(valor):
+    valor = str(valor or "").strip().lower()
+    if valor in ("todos", "tudo", "all", ""):
+        return "todos"
+    if valor.startswith("masc"):
+        return "masculino"
+    log.warning("descoberta.publico = %r não existe (use \"masculino\" ou \"todos\"); usando masculino", valor)
+    return "masculino"
+
+
 @dataclass
 class ConfigDescoberta:
     ativo: bool = True
@@ -39,6 +49,7 @@ class ConfigDescoberta:
     desconto_min_rastrear: float = 10  # na varredura, só guarda perfume fora do catálogo com desconto >= isso
     so_oficial: bool = True  # só posta loja oficial / vendido pela própria loja
     max_everyone_por_dia: int = 2
+    publico: str = "masculino"  # "masculino" (masculino + unissex) ou "todos"
     fontes: list = field(default_factory=list)
 
 
@@ -137,6 +148,7 @@ def carregar_config(caminho=ARQ_CONFIG):
         desconto_min_rastrear=float(d.get("desconto_min_rastrear", 10)),
         so_oficial=bool(d.get("so_oficial", True)),
         max_everyone_por_dia=int(d.get("max_everyone_por_dia", 2)),
+        publico=_publico(d.get("publico", "masculino")),
         fontes=list(d.get("fontes", [])),
     )
 

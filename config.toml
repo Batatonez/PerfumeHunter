@@ -128,8 +128,13 @@ so_oficial = true
 # No máximo quantos @everyone por dia (depois disso, o 💎 marca só o dono).
 max_everyone_por_dia = 2
 
-# Lojas onde o bot procura. Rode `.venv/bin/python -m scentinel lojas` no notebook pra ver quais
-# funcionam de verdade, e troque `ativo = false` nas que não funcionarem.
+# Que perfume o canal posta: "masculino" (masculino + unissex) ou "todos".
+# O /locate sempre mostra tudo o que você pesquisar.
+publico = "masculino"
+
+# Lojas onde o bot procura. Hoje: SÓ o Mercado Livre (loja oficial), que é o mais seguro.
+# As outras ficam desligadas (`ativo = false`); pra religar uma, troque pra `ativo = true` e reinicie.
+# `.venv/bin/python -m scentinel lojas` testa todas (inclusive as desligadas).
 # categorias: o que procurar nessa loja (designer, nicho, arabe, nacional; vazio = tudo)
 # marcas:     só esses perfumes (vazio = todos)
 
@@ -142,16 +147,19 @@ so_loja_oficial = true
 # catálogo do ML (cada produto: o vendedor oficial mais barato). Sem login, só a página (captcha).
 termos_varredura = ["perfume masculino", "perfume feminino", "perfume importado", "perfume arabe",
                     "eau de parfum", "eau de toilette", "perfume nicho", "perfume unissex"]
+# (com publico = "masculino", os termos femininos são pulados sozinhos)
 # categorias_varredura = ["MLB6284"]   # vazio = descobre sozinho as de perfume
 
 [[descoberta.fontes]]
 tipo = "vtex"
+ativo = false  # só ML por enquanto
 dominio = "www.sephora.com.br"
 nome = "Sephora"
 categorias = ["designer", "nicho"]
 
 [[descoberta.fontes]]
 tipo = "vtex"
+ativo = false  # só ML por enquanto
 dominio = "www.epocacosmeticos.com.br"
 nome = "Época Cosméticos"
 categorias = ["designer", "nicho", "arabe"]
@@ -166,12 +174,14 @@ categorias = ["designer", "nicho", "arabe"]
 
 [[descoberta.fontes]]
 tipo = "vtex"
+ativo = false  # só ML por enquanto
 dominio = "www.thebeautybox.com.br"
 nome = "The Beauty Box"
 categorias = ["designer"]
 
 [[descoberta.fontes]]
 tipo = "vtex"
+ativo = false  # só ML por enquanto
 dominio = "www.boticario.com.br"
 nome = "O Boticário"
 marca_padrao = "O Boticário"
@@ -179,6 +189,7 @@ marcas = ["O Boticário"]
 
 [[descoberta.fontes]]
 tipo = "vtex"
+ativo = false  # só ML por enquanto
 dominio = "www.natura.com.br"
 nome = "Natura"
 marca_padrao = "Natura"
@@ -186,12 +197,14 @@ marcas = ["Natura"]
 
 [[descoberta.fontes]]
 tipo = "vtex"
+ativo = false  # só ML por enquanto
 dominio = "www.drogariasaopaulo.com.br"
 nome = "Drogaria São Paulo"
 categorias = ["designer"]
 
 [[descoberta.fontes]]
 tipo = "vtex"
+ativo = false  # só ML por enquanto
 dominio = "www.drogariaspacheco.com.br"
 nome = "Drogarias Pacheco"
 categorias = ["designer"]

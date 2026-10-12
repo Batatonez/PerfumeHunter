@@ -8,7 +8,7 @@ from discord import app_commands
 from discord.ext import tasks
 
 from scentinel import busca, catalogo, config, db, formato, promo
-from scentinel.descoberta import Descoberta
+from scentinel.descoberta import TEMPO_MAX_AO_VIVO_S, Descoberta
 from scentinel.fontes import montar_fontes
 from scentinel.caca import Cacador
 
@@ -253,15 +253,27 @@ def registrar_comandos(tree):
     )
     @app_commands.autocomplete(nome=autocomplete_perfume, marca=autocomplete_marca)
     async def locate(interaction: discord.Interaction, nome: str, marca: str | None = None):
-        bot = interaction.client
         await interaction.response.defer(thinking=True)
+        try:
+            await _locate(interaction, nome, marca)
+        except Exception as e:  # nunca deixa a resposta parada em "procurando..."
+            log.exception("erro no /locate %r %r", nome, marca)
+            await interaction.edit_original_response(
+                content=f"❌ Deu erro procurando **{nome}** ({e.__class__.__name__}). Tenta de novo daqui a pouco.",
+                embed=None,
+            )
+
+    async def _locate(interaction, nome, marca):
+        bot = interaction.client
 
         async def avisar_rechecagem(n):
             await interaction.edit_original_response(content=f"⏳ checando {n} loja(s)...")
 
         if bot.descoberta:
             lojas = [f.nome for f in bot.descoberta.fontes if not bot.descoberta.pausada(f)]
-            await interaction.edit_original_response(content=f"🔎 procurando em {len(lojas)} loja(s)...")
+            await interaction.edit_original_response(
+                content=f"🔎 procurando em {len(lojas)} loja(s)... (leva até uns {TEMPO_MAX_AO_VIVO_S} s)"
+            )
             ao_vivo = await bot.descoberta.buscar_ao_vivo(nome, marca)
             if ao_vivo.ofertas:
                 await interaction.edit_original_response(

@@ -27,6 +27,7 @@ class Achado:
     variacao: str | None = None  # nome do SKU (ex.: "100ml")
     imagem: str | None = None  # foto do produto (vai no post)
     chave: str | None = None  # id do mesmo produto entre vendedores (ex.: catálogo do ML)
+    genero: str | None = None  # 'm', 'f', 'u' (unissex) quando a loja diz; None = não sei
 
 
 @dataclass
@@ -34,6 +35,8 @@ class ResultadoBusca:
     achados: list = field(default_factory=list)
     erro: str | None = None
     bloqueado: bool = False
+    pulado: bool = False  # a tarefa não chegou a falar com a loja (nada a contar, nem sucesso nem erro)
+    pausa_horas: float | None = None  # bloqueio curto (ex.: limite de velocidade da API): pausa menor e sem aviso
 
 
 def baixar_json(url, params=None, headers=None, timeout=coleta.TIMEOUT_S):

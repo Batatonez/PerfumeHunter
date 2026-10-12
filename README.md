@@ -4,7 +4,7 @@
 
 *O gato de guarda dos perfumes.*
 
-Bot de Discord que funciona como um **canal de promos de perfume** (estilo MDLinks, só perfume): de hora em hora varre as ofertas do **Mercado Livre (só lojas oficiais)** e de lojas confiáveis como Época, Sephora, Boticário e Natura, e posta **qualquer perfume em promo boa**, com foto, ~~preço antigo~~ → preço novo e nível de desconto. Manda um **🏆 Top do dia**, e o `/locate nome [marca]` pesquisa qualquer perfume nas lojas na hora. Também vigia links específicos que você cadastrar com `/add`.
+Bot de Discord que funciona como um **canal de promos de perfume** (estilo MDLinks, só perfume): de hora em hora varre as ofertas do **Mercado Livre (só lojas oficiais)** e posta **qualquer perfume masculino (ou unissex) em promo boa**, com foto, ~~preço antigo~~ → preço novo e nível de desconto. Manda um **🏆 Top do dia**, e o `/locate nome [marca]` pesquisa qualquer perfume nas lojas na hora. Também vigia links específicos que você cadastrar com `/add`.
 
 Feito pra rodar 24/7 num notebook velho (3 GB de RAM): sem navegador headless, uma requisição por vez e uns 60 MB de RAM.
 
@@ -322,6 +322,10 @@ São dois jeitos, rodando juntos:
 2. **Catálogo:** o `catalogo.toml` tem ~80 perfumes famosos com preço normal de mercado. Eles são buscados um a um (a cada 6 h por loja) e têm comparação de preço mais precisa.
 
 Uma busca por vez, com pausa educada entre elas.
+
+**Lojas:** hoje só o **Mercado Livre** está ligado (o mais seguro). As outras (Época, Sephora, Boticário, Natura...) continuam no `config.toml` com `ativo = false`; troque pra `true` pra religar.
+
+**Só masculino:** com `publico = "masculino"` no `config.toml` (o padrão), o canal posta só perfume masculino e unissex. O que é feminino (pelo catálogo, pelo que a loja diz ou pelo título) fica de fora. O `/locate` mostra tudo o que você pesquisar. Pra postar tudo: `publico = "todos"`.
 
 O que ele faz com o que acha:
 - **Descarta o que não é o frasco:** kit, decant, amostra, miniatura, tester, contratipo, "inspirado em", body splash, hidratante. ("Desodorante Colônia" do Boticário/Natura é perfume e **entra**.)

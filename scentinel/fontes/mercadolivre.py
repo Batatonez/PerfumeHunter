@@ -98,30 +98,38 @@ def trocar_codigo(codigo, caminho=None):
 
 
 def token_valido(caminho=None):
-    """Token salvo, renovado se estiver vencendo. None se não houver login."""
+    """Token salvo, renovado se estiver vencendo. None se não houver login (ou não renovou)."""
+    return token_e_motivo(caminho)[0]
+
+
+def token_e_motivo(caminho=None):
+    """(token, motivo). motivo: None (ok), 'sem_login', 'recusado' (o ML negou a renovação: refazer o
+    ml-login) ou 'falhou' (rede/ML fora do ar na renovação: tenta de novo depois)."""
     with _trava_token:  # o refresh_token só vale uma vez: dois refresh juntos derrubariam o login
         return _token_valido(Path(caminho or ARQ_TOKEN))
 
 
 def _token_valido(caminho):
-    if not caminho.exists():
-        return None
     try:
         registro = json.loads(caminho.read_text())
-    except ValueError:
-        return None
+    except (OSError, ValueError):
+        return None, "sem_login"
+    if not isinstance(registro, dict) or not registro.get("access_token"):
+        return None, "sem_login"
     if time.time() < registro.get("expira_em", 0):
-        return registro["access_token"]
+        return registro["access_token"], None
     cid, segredo, _ = credenciais()
     if not registro.get("refresh_token") or not cid or not segredo:
-        return None
+        return None, "recusado"
     dados, status = _pedir_token({
         "grant_type": "refresh_token", "client_id": cid, "client_secret": segredo,
         "refresh_token": registro["refresh_token"],
     })
     if status == 200 and dados.get("access_token"):
-        return _salvar_token(dados, caminho)["access_token"]
-    return None
+        return _salvar_token(dados, caminho)["access_token"], None
+    if status in (400, 401, 403):  # invalid_grant: o login foi revogado/venceu de vez
+        return None, "recusado"
+    return None, "falhou"
 
 
 def _valor(elemento):
@@ -182,9 +190,11 @@ def achados_do_html(html, so_oficial=True, ja_filtrado=False):
 
 SITE = "MLB"
 CATEGORIA_BELEZA = "MLB1246"  # Beleza e Cuidado Pessoal: a de Perfumes é filha dela
-PAUSA_API_S = (0.4, 1.2)  # respiro entre chamadas seguidas da mesma busca
+PAUSA_API_S = (0.6, 1.5)  # respiro entre chamadas seguidas da mesma busca (o ML dá 429 se correr)
 MAX_PAGINAS_OFERTAS = 3  # páginas de vendedores por produto (só se a 1ª não tiver loja oficial)
 MAX_CACHE_PRODUTOS = 3000
+MAX_FALHAS_DE_REDE = 2  # erros de rede seguidos numa tarefa: para (não segura a fila)
+PAUSA_LIMITE_HORAS = 0.5
 _GENERO = {"feminino": "Feminino", "masculino": "Masculino"}
 # subcategorias de perfume que não são o frasco pra pele adulta
 _CATEGORIA_FORA = re.compile(r"\b(kits?|infanti[ls]|amostras?|decants?|miniaturas?|body|splash|"
@@ -203,6 +213,7 @@ class ProdutoML:
     marca: str | None = None
     imagem: str | None = None
     ml: float | None = None
+    genero: str | None = None
 
     @property
     def url(self):
@@ -255,6 +266,7 @@ def produto_do_catalogo(dados):
         marca=(_atributo(dados, "BRAND") or {}).get("value_name") or None,
         imagem=_primeira_foto(dados),
         ml=catalogo.extrair_ml(volume.get("value_name") or "") if volume else None,
+        genero=catalogo.genero_do_texto(genero) if genero else catalogo.genero_do_texto(nome),
     )
 
 
@@ -296,7 +308,18 @@ def achado_do_produto(produto, oferta):
         oficial=oferta.oficial,
         ml=produto.ml,
         imagem=produto.imagem,
+        genero=produto.genero,
     )
+
+
+def _grave(erro):
+    """Erro que vale pra loja toda (login, recusa, limite): para a tarefa na hora."""
+    return any(c in (erro or "") for c in ("401", "403", "429"))
+
+
+def produto_do_link(url):
+    m = re.search(r"/p/(MLB\d+)", url or "")
+    return m.group(1) if m else None
 
 
 def _tem_token_salvo(caminho=None):
@@ -317,7 +340,7 @@ class FonteMercadoLivre:
     ]
 
     def __init__(self, nome="Mercado Livre", so_loja_oficial=True, modo="auto", termos_varredura=None, paginas=1,
-                 categorias_varredura=None, max_categorias=6, max_produtos=6):
+                 categorias_varredura=None, max_categorias=4, max_produtos=5, max_produtos_varredura=8):
         self.nome = nome
         self.so_oficial = so_loja_oficial
         self.modo = modo  # "auto" | "api" | "html"
@@ -326,24 +349,32 @@ class FonteMercadoLivre:
         self.categorias_fixas = [str(c) for c in categorias_varredura or []]  # vazio = descobre sozinho
         self.max_categorias = max(0, int(max_categorias))
         self.max_produtos = max(1, int(max_produtos))
-        self._token = None
-        self._token_ate = 0
+        self.max_produtos_varredura = max(1, int(max_produtos_varredura))
+        self.publico = "todos"  # a Descoberta troca pra "masculino" se o canal for só masculino
+        self._token_app = None
+        self._token_app_ate = 0
         self._produtos = {}  # cache id -> ProdutoML (nome e foto não mudam)
         self._categorias = None
         self._categorias_ate = 0
         self._sem_mais_vendidos_ate = 0
 
+    @property
+    def _so_masculino(self):
+        return self.publico == "masculino"
+
     # ---------------- token ----------------
 
     def _pegar_token(self):
-        token = token_valido()
-        if token:
-            return token
+        """(token, motivo). Com o login da conta salvo, nunca troca pelo token do app: ele leva 403
+        no catálogo e viraria um aviso falso de bloqueio."""
+        token, motivo = token_e_motivo()
+        if token or _tem_token_salvo():
+            return token, motivo
         cid, segredo, _ = credenciais()
         if not cid or not segredo:
-            return None
-        if self._token and time.time() < self._token_ate:
-            return self._token
+            return None, "sem_login"
+        if self._token_app and time.time() < self._token_app_ate:
+            return self._token_app, None
         try:
             r = coleta._sessao.post(f"{API}/oauth/token", data={
                 "grant_type": "client_credentials", "client_id": cid, "client_secret": segredo,
@@ -351,14 +382,13 @@ class FonteMercadoLivre:
             dados = r.json() if r.status_code == 200 else {}
         except Exception:
             dados = {}
-        if dados.get("access_token"):
-            self._token = dados["access_token"]
-            self._token_ate = time.time() + int(dados.get("expires_in", 21600)) - 300
-            return self._token
-        return None
+        if isinstance(dados, dict) and dados.get("access_token"):
+            self._token_app = dados["access_token"]
+            self._token_app_ate = time.time() + int(dados.get("expires_in", 21600)) - 300
+            return self._token_app, None
+        return None, "sem_login"
 
-    def _get(self, caminho, params=None, token=None):
-        token = token or self._pegar_token()
+    def _get(self, caminho, token, params=None):
         return baixar_json(f"{API}{caminho}", params=params, headers={"Authorization": f"Bearer {token}"})
 
     @staticmethod
@@ -370,7 +400,15 @@ class FonteMercadoLivre:
             dica = "faça o login: python -m scentinel ml-login" if sem_login else \
                 "rode no notebook: python -m scentinel ml-teste"
             return ResultadoBusca(erro=f"api: o ML recusou a busca de produtos (HTTP 403); {dica}", bloqueado=True)
-        return ResultadoBusca(erro=f"api: {erro}", bloqueado="429" in erro)
+        if "429" in erro:  # limite de velocidade: para meia hora (dobra se repetir), sem aviso no canal
+            return ResultadoBusca(erro="api: o ML pediu pra ir mais devagar (HTTP 429)", bloqueado=True,
+                                  pausa_horas=PAUSA_LIMITE_HORAS)
+        return ResultadoBusca(erro=f"api: {erro}")
+
+    def _erro_sem_token(self, motivo):
+        if motivo == "falhou":  # rede/ML fora na hora de renovar: não é bloqueio, tenta na próxima
+            return ResultadoBusca(erro="api: não deu pra renovar o login do ML agora (tento de novo depois)")
+        return self._resultado_de_erro("HTTP 401")
 
     # ---------------- catálogo ----------------
 
@@ -383,7 +421,7 @@ class FonteMercadoLivre:
         produto = self._produtos.get(produto_id)  # .get: o /locate pode limpar o cache ao mesmo tempo
         if produto:
             return produto, None
-        dados, erro, _ = self._get(f"/products/{produto_id}", token=token)
+        dados, erro, _ = self._get(f"/products/{produto_id}", token)
         if erro:
             return None, erro
         produto = produto_do_catalogo(dados)
@@ -397,7 +435,7 @@ class FonteMercadoLivre:
         for pagina in range(MAX_PAGINAS_OFERTAS):
             if pagina:
                 _respiro()
-            dados, erro, _ = self._get(f"/products/{produto_id}/items", {"offset": offset} if offset else None, token)
+            dados, erro, _ = self._get(f"/products/{produto_id}/items", token, {"offset": offset} if offset else None)
             if erro:
                 if "404" in erro:  # "No winners found": ninguém vendendo agora
                     break
@@ -412,108 +450,159 @@ class FonteMercadoLivre:
         return sorted(ofertas, key=lambda o: o.preco), None
 
     def _achados_dos_produtos(self, produtos, token):
-        achados, erros = [], []
+        """Melhor oferta de cada produto. Para no primeiro erro grave (login/recusa/limite) ou depois de
+        MAX_FALHAS_DE_REDE erros de rede seguidos, pra não segurar a fila de requisições do bot."""
+        achados, falhas = [], 0
         for i, produto in enumerate(produtos):
             if i:
                 _respiro()
             ofertas, erro = self._ofertas(produto.id, token)
             if erro:
-                erros.append(erro)
+                falhas += 1
+                if _grave(erro) or falhas >= MAX_FALHAS_DE_REDE:
+                    return self._fechar(achados, erro)
+                continue
+            falhas = 0
             if ofertas:
                 achados.append(achado_do_produto(produto, ofertas[0]))
-        return achados, erros
+        return ResultadoBusca(achados=achados)
 
-    def _buscar_api(self, termo, offset=0, token=None):
-        token = token or self._pegar_token()
-        if not token:
-            return self._resultado_de_erro("HTTP 401")  # login salvo, mas venceu e não renovou
+    def _fechar(self, achados, erro):
+        """Tarefa interrompida: erro grave vale pra loja toda; erro de rede com algo achado entrega o que deu."""
+        if _grave(erro) or not achados:
+            return self._resultado_de_erro(erro)
+        return ResultadoBusca(achados=achados)
+
+    def _buscar_api(self, termo, token, offset=0, so_publico=False):
         params = {"status": "active", "site_id": SITE, "q": termo}
         if offset:
             params["offset"] = offset
-        dados, erro, _ = self._get("/products/search", params, token)
+        dados, erro, _ = self._get("/products/search", token, params)
         if erro:
             return self._resultado_de_erro(erro, sem_login=not _tem_token_salvo())
         produtos = []
         for bruto in _lista(_obj(dados).get("results")):
             produto = produto_do_catalogo(bruto)
-            if produto and not catalogo.e_lixo(produto.nome):
-                self._guardar(produto)
-                produtos.append(produto)
+            if not produto or catalogo.e_lixo(produto.nome):
+                continue
+            self._guardar(produto)
+            if so_publico and self._so_masculino and produto.genero == "f":
+                continue
+            produtos.append(produto)
         produtos = produtos[: self.max_produtos]
         if not produtos:
             return ResultadoBusca()
         _respiro()
-        achados, erros = self._achados_dos_produtos(produtos, token)
-        if erros and len(erros) == len(produtos):
-            return self._resultado_de_erro(erros[0])
-        return ResultadoBusca(achados=achados)
+        return self._achados_dos_produtos(produtos, token)
+
+    def sabe_reler(self, achado):
+        return self.modo != "html" and produto_do_link(achado.url) is not None
+
+    def reler(self, achado):
+        """Checagem de sanidade: relê só esse produto (1 chamada), em vez de refazer a busca inteira."""
+        produto_id = produto_do_link(achado.url)
+        token, motivo = self._pegar_token()
+        if not token:
+            return self._erro_sem_token(motivo)
+        ofertas, erro = self._ofertas(produto_id, token)
+        if erro:
+            return self._resultado_de_erro(erro)
+        if not ofertas:
+            return ResultadoBusca()  # ninguém (oficial) vendendo agora: "sumiu da busca"
+        produto = self._produtos.get(produto_id) or ProdutoML(
+            produto_id, achado.titulo, achado.marca, achado.imagem, achado.ml, achado.genero)
+        return ResultadoBusca(achados=[achado_do_produto(produto, ofertas[0])])
 
     # ---------------- mais vendidos (varredura) ----------------
 
-    def _descobrir_categorias(self, token):
-        """Categorias de perfume do ML (a de Perfumes e as filhas). Guarda depois de achar."""
+    def _categorias_conhecidas(self):
         if self.categorias_fixas:
             return self.categorias_fixas[: self.max_categorias]
         if self._categorias is not None and time.time() < self._categorias_ate:
             return self._categorias
-        achadas = []
-        dados, erro, _ = self._get(f"/categories/{CATEGORIA_BELEZA}", token=token)
+        return None
+
+    def _descobrir_categorias(self, token):
+        """Categorias de perfume do ML (a de Perfumes e as filhas). Achou tudo sem erro: guarda 1 semana;
+        algum erro no caminho: tenta de novo em 1 h; nenhuma com 'perfume' no nome: 6 h."""
+        conhecidas = self._categorias_conhecidas()
+        if conhecidas is not None:
+            return conhecidas
+        achadas, erros = [], []
+        dados, erro, _ = self._get(f"/categories/{CATEGORIA_BELEZA}", token)
+        if erro:
+            erros.append(erro)
         for filha in _lista(_obj(dados).get("children_categories")):
             if "perfum" in catalogo.texto_titulo(filha.get("name")) and filha.get("id"):
                 achadas.append(str(filha["id"]))
         for cat in list(achadas):
             _respiro()
-            dados, _, _ = self._get(f"/categories/{cat}", token=token)
+            dados, erro, _ = self._get(f"/categories/{cat}", token)
+            if erro:
+                erros.append(erro)
             for filha in _lista(_obj(dados).get("children_categories")):
                 nome = catalogo.texto_titulo(filha.get("name"))
-                if filha.get("id") and str(filha["id"]) not in achadas and not _CATEGORIA_FORA.search(nome):
-                    achadas.append(str(filha["id"]))
-        if not achadas:
-            log.warning("ML: não achei as categorias de perfume (%s)", erro or "nenhuma com 'perfume' no nome")
-        # achou: guarda por 1 semana; não achou: tenta de novo daqui a 6 h (não gasta chamada a cada tarefa)
+                if not filha.get("id") or str(filha["id"]) in achadas or _CATEGORIA_FORA.search(nome):
+                    continue
+                if self._so_masculino and catalogo.genero_do_texto(nome) == "f":
+                    continue
+                achadas.append(str(filha["id"]))
+        if erros or not achadas:
+            log.warning("ML: categorias de perfume: %s", erros[0] if erros else "nenhuma com 'perfume' no nome")
+        horas = 1 if erros else 7 * 24 if achadas else 6
         self._categorias = achadas[: self.max_categorias]
-        self._categorias_ate = time.time() + (7 * 24 if achadas else 6) * 3600
+        self._categorias_ate = time.time() + horas * 3600
         return self._categorias
 
     def _mais_vendidos(self, posicao):
-        """Tarefa da varredura: os 20 mais vendidos da categoria número `posicao`."""
+        """Tarefa da varredura: os mais vendidos da categoria número `posicao`."""
         if time.time() < self._sem_mais_vendidos_ate:
-            return ResultadoBusca()
-        token = self._pegar_token()
+            return ResultadoBusca(pulado=True)
+        token, motivo = self._pegar_token()
         if not token:
-            return ResultadoBusca()
+            return self._erro_sem_token(motivo) if _tem_token_salvo() else ResultadoBusca(pulado=True)
         categorias = self._descobrir_categorias(token)
         if posicao >= len(categorias):
-            return ResultadoBusca()
+            return ResultadoBusca(pulado=True)
         _respiro()
-        dados, erro, _ = self._get(f"/highlights/{SITE}/category/{categorias[posicao]}", token=token)
+        dados, erro, _ = self._get(f"/highlights/{SITE}/category/{categorias[posicao]}", token)
         if erro:
             if "403" in erro:
                 # o ML não abre essa lista pra esse app: a varredura segue só pelos termos (sem pausar a loja)
                 self._sem_mais_vendidos_ate = time.time() + 24 * 3600
                 log.warning("ML: lista de mais vendidos fechada (%s); tento de novo amanhã", erro)
-                return ResultadoBusca()
+                return ResultadoBusca(pulado=True)
             if "404" in erro:  # essa categoria não tem lista: só pula ela
-                return ResultadoBusca()
-            return ResultadoBusca(erro=f"api: {erro}")
+                return ResultadoBusca(pulado=True)
+            return self._resultado_de_erro(erro)
         ids = []
         for c in _lista(_obj(dados).get("content")):
             if c.get("type") == "PRODUCT" and c.get("id") and str(c["id"]) not in ids:
                 ids.append(str(c["id"]))
-        produtos = []
+        produtos, falhas = [], 0
         for pid in ids:
+            if len(produtos) >= self.max_produtos_varredura:
+                break
             if pid not in self._produtos:
                 _respiro()
-            produto, _ = self._produto(pid, token)
-            if produto and not catalogo.e_lixo(produto.nome):
-                produtos.append(produto)
+            produto, erro = self._produto(pid, token)
+            if erro:
+                if "404" in erro:
+                    continue
+                falhas += 1
+                if _grave(erro) or falhas >= MAX_FALHAS_DE_REDE:
+                    return self._fechar([], erro)
+                continue
+            falhas = 0
+            if not produto or catalogo.e_lixo(produto.nome):
+                continue
+            if self._so_masculino and produto.genero == "f":
+                continue
+            produtos.append(produto)
         if not produtos:
             return ResultadoBusca()
         _respiro()
-        achados, erros = self._achados_dos_produtos(produtos, token)
-        if erros and len(erros) == len(produtos):
-            return self._resultado_de_erro(erros[0])
-        return ResultadoBusca(achados=achados)
+        return self._achados_dos_produtos(produtos, token)
 
     # ---------------- página do site (sem login) ----------------
 
@@ -535,27 +624,41 @@ class FonteMercadoLivre:
 
     def _pagina(self, termo, pagina):
         if self.modo != "html" and _tem_token_salvo():
-            return self._buscar_api(termo, offset=pagina * 10)
+            token, motivo = self._pegar_token()
+            if not token:
+                return self._erro_sem_token(motivo)
+            return self._buscar_api(termo, token, offset=pagina * 10, so_publico=True)
         if pagina:
-            return ResultadoBusca()  # sem login só dá pra pegar a 1ª página (pela página do site)
+            return ResultadoBusca(pulado=True)  # sem login só dá pra pegar a 1ª página (pela página do site)
         return self.buscar(termo)
 
     def tarefas_varredura(self):
+        """Sem rede (roda no loop do bot): só monta a lista com o que já se sabe."""
+        termos = [t for t in self.termos_varredura
+                  if not (self._so_masculino and catalogo.genero_do_texto(t) == "f")]
         tarefas = [(f"ML \"{t}\" pág. {p + 1}", (lambda t=t, p=p: self._pagina(t, p)))
-                   for t in self.termos_varredura for p in range(self.paginas)]
-        if self.modo != "html" and _tem_token_salvo():
-            tarefas = [(f"ML mais vendidos #{i + 1}", (lambda i=i: self._mais_vendidos(i)))
-                       for i in range(self.max_categorias)] + tarefas
+                   for t in termos for p in range(self.paginas)]
+        if self.modo != "html" and _tem_token_salvo() and time.time() >= self._sem_mais_vendidos_ate:
+            conhecidas = self._categorias_conhecidas()
+            # ainda não sabe as categorias: uma tarefa descobre e já faz a primeira
+            rotulos = conhecidas if conhecidas is not None else ["(descobrindo categorias)"]
+            tarefas = [(f"ML mais vendidos {c}", (lambda i=i: self._mais_vendidos(i)))
+                       for i, c in enumerate(rotulos[: self.max_categorias])] + tarefas
         return tarefas
 
     def buscar(self, termo):
-        token = self._pegar_token() if self.modo != "html" else None
+        if self.modo == "html":
+            return self._buscar_html(termo)
+        token, motivo = self._pegar_token()
         if token:
-            res = self._buscar_api(termo, token=token)
+            res = self._buscar_api(termo, token)
             # só o token do app (sem o login da conta) e o ML recusou: tenta a página do site
-            if not (res.bloqueado and "403" in (res.erro or "") and not _tem_token_salvo() and self.modo == "auto"):
-                return res
-        elif self.modo == "api":
+            if res.bloqueado and "403" in (res.erro or "") and not _tem_token_salvo() and self.modo == "auto":
+                return self._buscar_html(termo)
+            return res
+        if _tem_token_salvo():
+            return self._erro_sem_token(motivo)
+        if self.modo == "api":
             return ResultadoBusca(erro="api: falta o login do ML (python -m scentinel ml-login)")
         return self._buscar_html(termo)
 
