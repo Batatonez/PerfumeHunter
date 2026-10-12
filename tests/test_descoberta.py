@@ -8,7 +8,7 @@ import pytest
 from scentinel import config, db
 from scentinel.caca import Cacador
 from scentinel.catalogo import ItemCatalogo
-from scentinel.coleta import Leitura
+from scentinel.coleta import Leitura, Resultado
 from scentinel.descoberta import ERROS_PRA_PAUSAR, Descoberta
 from scentinel.fontes import Achado, ResultadoBusca
 
@@ -73,7 +73,10 @@ def amb():
     async def dormir(_s):
         relogio.agora += timedelta(seconds=_s)
 
-    cac = Cacador(con, cfg, enviar_alerta, enviar_aviso, dormir=dormir, relogio=relogio)
+    def sem_rede(url, seletor=None):  # teste nunca baixa página de verdade
+        return Resultado(erro="sem rede no teste")
+
+    cac = Cacador(con, cfg, enviar_alerta, enviar_aviso, baixar=sem_rede, dormir=dormir, relogio=relogio)
     a, b = FonteFalsa("vtex:a", "Loja A"), FonteFalsa("vtex:b", "Loja B")
     desc = Descoberta(cac, ITENS, [a, b], enviar_aviso=enviar_aviso)
 

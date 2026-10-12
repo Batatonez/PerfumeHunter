@@ -318,7 +318,7 @@ Educação com as lojas (não negociável):
 
 São dois jeitos, rodando juntos:
 
-1. **Varredura (o principal):** de hora em hora o bot percorre as ofertas de perfume das lojas: no Mercado Livre, vários termos ("perfume masculino", "perfume árabe", "eau de parfum"...) só em **loja oficial**; nas lojas VTEX, a lista de perfumes **ordenada por maior desconto**. Posta **qualquer perfume** em promo boa, os maiores descontos primeiro. Perfume que aparece em várias lojas é reconhecido como o mesmo (pelo nome e tamanho) e só o mais barato é postado.
+1. **Varredura (o principal):** de hora em hora o bot percorre as ofertas de perfume das lojas: no Mercado Livre, os **mais vendidos** das categorias de perfume e vários termos ("perfume masculino", "perfume árabe", "eau de parfum"...), só **loja oficial**; nas lojas VTEX, a lista de perfumes **ordenada por maior desconto**. Posta **qualquer perfume** em promo boa, os maiores descontos primeiro. Perfume que aparece em várias lojas é reconhecido como o mesmo (pelo nome e tamanho) e só o mais barato é postado.
 2. **Catálogo:** o `catalogo.toml` tem ~80 perfumes famosos com preço normal de mercado. Eles são buscados um a um (a cada 6 h por loja) e têm comparação de preço mais precisa.
 
 Uma busca por vez, com pausa educada entre elas.
@@ -345,6 +345,8 @@ Nas que derem ❌, coloque `ativo = false` no `config.toml`.
 
 A busca do ML só funciona com um app (grátis) logado; sem isso ele pede captcha. Só entra **loja oficial** (tem muito perfume falsificado lá).
 
+Desde 2025 o ML fechou a busca de anúncios da API (`/sites/MLB/search` dá 403 pra quase todo app). Por isso o bot usa o **catálogo** do ML: acha a página do produto (`/products/search`), vê todos os vendedores dele (`/products/{id}/items`) e fica com a **loja oficial mais barata**. O link do post é a página do produto no ML.
+
 1. Entre em <https://developers.mercadolivre.com.br/devcenter> com sua conta do ML e clique em **Criar uma aplicação**.
 2. Preencha: nome `Scentinel`, finalidade **Pessoal**, e em **URIs de redirect** coloque `https://www.google.com/` (com a barra no final). Permissões: **Publicação e sincronização = só leitura**, o resto sem acesso; tópicos de notificação todos desmarcados. Em **fluxos de autenticação**, marque **Authorization Code** e **Refresh Token** (sem o Refresh Token o acesso vence em ~6 h e não renova); **PKCE desmarcado**. Salve.
 3. Copie o **App ID** e a **Secret Key** que aparecem e coloque no `.env`:
@@ -358,6 +360,11 @@ A busca do ML só funciona com um app (grátis) logado; sem isso ele pede captch
    .venv/bin/python -m scentinel ml-login
    ```
 5. Reinicie o bot. O token é renovado sozinho daí pra frente (fica em `dados/ml_token.json`, fora do git).
+6. Pra conferir o que a API responde (mostra só status e nomes de campos, pode mandar print):
+   ```bash
+   .venv/bin/python -m scentinel ml-teste
+   ```
+   Se o `/products/search` der ❌ 403: no app do devcenter, mude **Publicação e sincronização** pra **leitura e escrita**, salve, rode o `ml-login` de novo e reinicie o bot. (O bot só lê; nunca publica nada.)
 
 **Mexer no catálogo:** abra o `catalogo.toml`. Cada perfume tem preço normal, "preço bom", termos de busca e palavras a evitar (flankers). Os preços vêm estimados; ajuste à vontade e reinicie o bot.
 

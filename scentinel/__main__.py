@@ -7,6 +7,7 @@
   python -m scentinel lojas              -> testa a busca em cada loja do config.toml
   python -m scentinel lojas --termo "lattafa khamrah"
   python -m scentinel ml-login           -> login do Mercado Livre (uma vez)
+  python -m scentinel ml-teste           -> confere o que a API do ML responde (pra mandar print)
 """
 
 import argparse
@@ -130,12 +131,24 @@ def ml_login():
         print(f"\n❌ Não deu: {msg}")
         print("   (o código vale poucos minutos e só uma vez: rode de novo e cole rapidinho)")
         return 1
-    print("\n✅ Login feito! Testando a busca...")
+    print(f"\n✅ Login feito! ({msg})" if msg != "login ok" else "\n✅ Login feito!")
+    print("   Testando a busca...")
     res = ml.FonteMercadoLivre().buscar("sauvage dior")
     if res.erro:
         print(f"⚠️  Login ok, mas a busca deu: {res.erro}")
+        print("   Rode: python -m scentinel ml-teste   e mande o print pro Claude.")
         return 1
     print(f"✅ Busca ok: {len(res.achados)} anúncio(s) de loja oficial. Pode reiniciar o bot.")
+    return 0
+
+
+def ml_teste(termo):
+    """Mostra o que cada rota da API do ML responde com o login salvo (sem token nem dados da conta)."""
+    from scentinel.fontes import mercadolivre as ml
+
+    print(f"🔎 Testando a API do Mercado Livre com \"{termo}\"...\n")
+    for linha in ml.diagnostico(termo):
+        print(linha)
     return 0
 
 
@@ -150,6 +163,8 @@ def main(argv=None):
     p_lojas.add_argument("--termo", default="sauvage dior", help="o que buscar (padrão: sauvage dior)")
     p_lojas.add_argument("--so", help="testa só a loja com esse nome (ex.: sephora)")
     sub.add_parser("ml-login", help="login do Mercado Livre (uma vez)")
+    p_mlt = sub.add_parser("ml-teste", help="confere o que a API do Mercado Livre responde")
+    p_mlt.add_argument("--termo", default="sauvage dior", help="o que buscar (padrão: sauvage dior)")
     sub.add_parser("bot", help="liga o bot (padrão)")
 
     args = parser.parse_args(argv)
@@ -162,6 +177,8 @@ def main(argv=None):
         return testar_lojas(args.termo, args.so)
     if args.comando == "ml-login":
         return ml_login()
+    if args.comando == "ml-teste":
+        return ml_teste(args.termo)
 
     from scentinel.bot import rodar
 

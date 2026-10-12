@@ -138,9 +138,11 @@ tipo = "mercadolivre"
 # Perfume falsificado é comum no ML: só anúncios de loja oficial.
 so_loja_oficial = true
 # Precisa do login uma vez: python -m scentinel ml-login (veja o README).
-# Termos da varredura (cada um, 2 páginas de 50):
+# Com login, a varredura pega os mais vendidos das categorias de perfume e busca estes termos no
+# catálogo do ML (cada produto: o vendedor oficial mais barato). Sem login, só a página (captcha).
 termos_varredura = ["perfume masculino", "perfume feminino", "perfume importado", "perfume arabe",
                     "eau de parfum", "eau de toilette", "perfume nicho", "perfume unissex"]
+# categorias_varredura = ["MLB6284"]   # vazio = descobre sozinho as de perfume
 
 [[descoberta.fontes]]
 tipo = "vtex"
