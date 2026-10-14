@@ -205,6 +205,7 @@ MAX_CACHE_PRODUTOS = 3000
 MAX_FALHAS_DE_REDE = 2  # erros de rede seguidos numa tarefa: para (não segura a fila)
 PAUSA_LIMITE_HORAS = 0.5
 _GENERO = {"feminino": "Feminino", "masculino": "Masculino"}
+_DOMINIO_PERFUME = re.compile(r"PERFUM|FRAGRAN|COLOGN|COLONIA|EAU_DE")  # domain_id do ML (ex.: MLB-PERFUMES)
 # subcategorias de perfume que não são o frasco pra pele adulta
 _CATEGORIA_FORA = re.compile(r"\b(kits?|infanti[ls]|amostras?|decants?|miniaturas?|body|splash|"
                              r"ambientes?|capilar(es)?)\b")
@@ -264,7 +265,7 @@ def produto_do_catalogo(dados):
     nome = re.sub(r"\s+", " ", dados["name"]).strip()
     texto = catalogo.texto_titulo(nome)
     # nome do catálogo às vezes não diz que é perfume nem o público: completa com o que o ML sabe
-    if "PERFUME" in str(dados.get("domain_id") or "").upper() and not catalogo.e_perfume(nome):
+    if _DOMINIO_PERFUME.search(str(dados.get("domain_id") or "").upper()) and not catalogo.e_perfume(nome):
         nome = f"Perfume {nome}"
     genero = catalogo.texto_titulo((_atributo(dados, "GENDER") or {}).get("value_name") or "")
     if genero in _GENERO and not (catalogo._FEM.search(texto) or catalogo._MASC.search(texto)):
@@ -350,6 +351,8 @@ def detalhe_catalogo(total, situacao):
         partes.append(f"{situacao['escondido']} com os vendedores escondidos pelo ML")
     if situacao.get("lixo"):
         partes.append(f"{situacao['lixo']} kit/decant/amostra")
+    if situacao.get("nao_perfume"):
+        partes.append(f"{situacao['nao_perfume']} que não é perfume")
     return f"catálogo do ML: {total} produto(s)" + (f" ({', '.join(partes)})" if partes else "")
 
 
@@ -578,6 +581,9 @@ class FonteMercadoLivre:
                 continue
             if catalogo.e_lixo(produto.nome):
                 situacao["lixo"] += 1
+                continue
+            if not catalogo.e_perfume(produto.nome):  # o catálogo do ML mistura tudo (ex.: Funko "God of War")
+                situacao["nao_perfume"] += 1
                 continue
             self._guardar(produto)
             if so_publico and self._so_masculino and produto.genero == "f":

@@ -765,3 +765,24 @@ def test_ml_detalhe_do_catalogo(monkeypatch, tmp_path):
     assert res.achados == [] and not res.erro
     assert res.detalhe == ("catálogo do ML: 3 produto(s) (1 sem ninguém vendendo agora, "
                            "1 com os vendedores escondidos pelo ML, 1 kit/decant/amostra)")
+
+
+def test_ml_so_perfume_no_catalogo(monkeypatch, tmp_path):
+    """"/locate god of fire" achava um Funko do God of War: no catálogo do ML só entra perfume."""
+    _com_login(monkeypatch, tmp_path)
+    chamadas = []
+    busca = {"results": [
+        {"id": "MLB7", "name": "God Of War - Fire Troll # 271 - Pop Funko", "domain_id": "MLB-COLLECTIBLE_FIGURES"},
+        _produto_bruto("MLB1", "Stephane Humbert Lucas God Of Fire 50ml", "SHL 777", volume="50 mL"),
+        _produto_bruto("MLB2", "Club de Nuit Intense Man 105ml", "Armaf", dominio="MLB-FRAGRANCES"),
+    ]}
+    monkeypatch.setattr(ml, "baixar_json", _api_falsa({
+        "/products/search": (busca, None, False),
+        "/products/MLB1/items": (ITENS_P1, None, False),
+        "/products/MLB2/items": (ITENS_P1, None, False),
+    }, chamadas))
+    res = ml.FonteMercadoLivre().buscar("god of fire")
+    assert "/products/MLB7/items" not in [c[0] for c in chamadas]  # nem abre os vendedores do Funko
+    assert {a.url for a in res.achados if a.oficial} == {"https://www.mercadolivre.com.br/p/MLB1",
+                                                         "https://www.mercadolivre.com.br/p/MLB2"}
+    assert "1 que não é perfume" in res.detalhe

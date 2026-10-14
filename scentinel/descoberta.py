@@ -488,8 +488,8 @@ class Descoberta:
     def _casa_consulta(self, achado, palavras, marca_norm):
         texto = busca.normalizar(f"{achado.titulo} {achado.marca or ''}")
         tokens = texto.split()
-        if catalogo.e_lixo(achado.titulo):
-            return False
+        if catalogo.e_lixo(achado.titulo) or not catalogo.e_perfume(achado.titulo):
+            return False  # kit/decant ou nem é perfume (ex.: "God of Fire" achava um Funko)
         if marca_norm and not catalogo._marca_presente(marca_norm, tokens, achado.marca):
             return False
         return all(catalogo._tem_palavra(p, tokens) for p in palavras)

@@ -331,3 +331,35 @@ def test_send_so_admin():
     assert "Só admin" in respostas[-1] and pedidos == []
     asyncio.run(cmd.callback(interacao(True), numero=5))
     assert pedidos == [5] and seguintes[-1].startswith("🛍️ Mandei 2 de 5")
+
+
+def test_locate_nunca_usa_preco_guardado():
+    """Sem nada ao vivo, o /locate diz que não achou: nada de mostrar leitura antiga do banco."""
+    import asyncio
+    from types import SimpleNamespace
+
+    from scentinel.bot import BotScentinel, registrar_comandos
+    from scentinel.descoberta import ResultadoAoVivo
+
+    bot = BotScentinel(config.carregar_config(), config.Segredos("x", 1, 2, 3), db.conectar(":memory:"))
+    registrar_comandos(bot.tree)
+
+    async def ao_vivo_vazio(nome, marca=None):
+        return ResultadoAoVivo(nome, lojas_ok=["Mercado Livre"])
+
+    async def nao_pode(*a, **k):
+        raise AssertionError("não pode usar o preço guardado")
+
+    bot.descoberta.buscar_ao_vivo = ao_vivo_vazio
+    bot.cacador.locate = nao_pode
+    edicoes = []
+
+    async def defer(**kw):
+        pass
+
+    async def editar(**kw):
+        edicoes.append(kw)
+
+    interacao = SimpleNamespace(client=bot, response=SimpleNamespace(defer=defer), edit_original_response=editar)
+    asyncio.run(bot.tree.get_command("locate").callback(interacao, nome="sauvage"))
+    assert edicoes[-1]["embed"].description.startswith("Não achei **sauvage**")

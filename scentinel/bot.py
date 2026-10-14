@@ -375,19 +375,15 @@ def registrar_comandos(tree):
                     content=formato.cortar(texto_pausadas(bot.descoberta.estado_fontes(), bot.cfg.fuso), 1900))
                 return
             await interaction.edit_original_response(content="🔎 procurando...")
+            # só o que achou AGORA: nunca preço guardado de antes (se não achou, diz por quê)
             ao_vivo = await bot.descoberta.buscar_ao_vivo(nome, marca)
-            if ao_vivo.ofertas:
-                await interaction.edit_original_response(
-                    content=None, embed=discord.Embed.from_dict(formato.embed_ao_vivo(ao_vivo))
-                )
-                return
-
-        resposta = await bot.cacador.locate(nome, ao_rechecar=avisar_rechecagem, marca=marca)
-        if resposta.texto and bot.descoberta:
             await interaction.edit_original_response(
                 content=None, embed=discord.Embed.from_dict(formato.embed_ao_vivo(ao_vivo))
             )
             return
+
+        # busca automática desligada: só os anúncios cadastrados com /add
+        resposta = await bot.cacador.locate(nome, ao_rechecar=avisar_rechecagem, marca=marca)
         if resposta.texto:
             await interaction.edit_original_response(content=resposta.texto)
             return

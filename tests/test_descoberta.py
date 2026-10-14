@@ -726,3 +726,11 @@ def test_send_para_se_o_discord_falhar(amb):
     assert rodar(amb.desc.mandar_varias(5, falha, pausa)) == 0
     novas, repetidas = amb.desc.ranking_vitrine()
     assert len(novas) == 2 and repetidas == []  # o que não saiu não conta como postado
+
+
+def test_locate_so_mostra_perfume(amb):
+    amb.a.programar("god of fire",
+                    achado("God Of War - Fire Troll # 271 - Pop Funko", 450, "Loja A", "https://a/funko"),
+                    achado("Perfume Stephane Humbert Lucas God Of Fire Parfum 50ml", 1800, "Loja A", "https://a/gof"))
+    res = rodar(amb.desc.buscar_ao_vivo("god of fire"))
+    assert [a.url for a, _, _ in res.ofertas] == ["https://a/gof"]
