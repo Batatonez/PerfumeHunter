@@ -257,7 +257,7 @@ def _porque_nao_achou(res):
     if "kit/decant" in motivos and "com vendedor" not in motivos:
         return ("🧪 Só achei kit, decant ou amostra",
                 "O bot mostra só o frasco inteiro. Os outros anúncios estão no link abaixo.")
-    return ("🤷 Não achei esse perfume no catálogo do Mercado Livre",
+    return ("🔍 Não achei esse perfume no catálogo do Mercado Livre",
             "Ele deve estar só em anúncios avulsos, que o ML não mostra pra bots.")
 
 

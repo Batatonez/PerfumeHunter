@@ -603,7 +603,7 @@ def registrar_comandos(tree):
                      "A varredura de hora em hora vai achando mais.")
         else:
             resumo = bot.descoberta.resumo_vitrine()
-            texto = (f"🤷 Não tenho oferta pra mandar agora ({resumo['conhecidas']} conhecida(s) nas últimas 24 h). "
+            texto = (f"🔍 Não tenho oferta pra mandar agora ({resumo['conhecidas']} conhecida(s) nas últimas 24 h). "
                      "Usa o `/status` pra ver se o Mercado Livre está funcionando.")
         await interaction.followup.send(texto, ephemeral=True)
 
