@@ -982,6 +982,9 @@ def test_navegador_de_verdade_reconhece_recusa():
         def do_GET(self):
             codigo = 429 if "limite" in self.path else 200
             corpo = b"<html><body>Acesso negado <div class='g-recaptcha'></div></body></html>"
+            if "normal" in self.path:  # página comum do ML: cita "captcha" no código, mas não pede nada
+                corpo = (b"<html><head><title>Queening | MercadoLivre</title><script>var cfg={recaptcha:'x',"
+                         b"captchaKey:'y'}</script></head><body>Nenhum resultado</body></html>")
             self.send_response(codigo)
             self.send_header("Content-Type", "text/html")
             self.end_headers()
@@ -998,7 +1001,26 @@ def test_navegador_de_verdade_reconhece_recusa():
         if erro and not bloqueado:
             pytest.skip(erro)  # Chromium não instalado nessa máquina
         assert bloqueado and "429" in erro
-        html, erro, bloqueado = navegador.baixar_html(f"{base}/desafio", esperar="div.poly-card", tempo_s=40)
+        html, erro, bloqueado = navegador.baixar_html(f"{base}/desafio", esperar="div.poly-card", tempo_s=40, espera_conteudo_s=2)
         assert bloqueado and html is None  # 200 com captcha e sem resultado: também é bloqueio
+        html, erro, bloqueado = navegador.baixar_html(f"{base}/normal", esperar="div.poly-card", tempo_s=40, espera_conteudo_s=2)
+        assert not erro and not bloqueado and b"Nenhum resultado" in html  # "captcha" só no código: não é bloqueio
     finally:
         srv.shutdown()
+
+
+
+def test_ml_catalogo_separa_letra_de_numero(monkeypatch, tmp_path):
+    _com_login(monkeypatch, tmp_path)
+    chamadas = []
+    monkeypatch.setattr(ml, "baixar_json", _api_falsa({"/products/search": ({"results": []}, None, False)}, chamadas))
+    ml.FonteMercadoLivre().buscar("xerjoff torino21")
+    assert chamadas[0][1]["q"] == "xerjoff torino 21"
+
+
+def test_ml_site_sem_anuncio_diz_que_pagina_veio(monkeypatch, tmp_path):
+    monkeypatch.setattr(ml.navegador, "baixar_html",
+                        lambda url, **kw: (b"<html><head><title>Mercado Livre - Algo novo</title></head></html>",
+                                           None, False))
+    res = ml.FonteMercadoLivre()._buscar_site("queening")
+    assert res.achados == [] and res.detalhe == 'site do ML: nenhum anúncio na página ("Mercado Livre - Algo novo")'

@@ -619,6 +619,8 @@ class FonteMercadoLivre:
         return ResultadoBusca(achados=achados)
 
     def _buscar_api(self, termo, token, offset=0, so_publico=False):
+        # a busca do catálogo não separa "torino21": vira "torino 21" (o site do ML separa sozinho)
+        termo = re.sub(r"(?<=[a-zA-Z])(?=\d)|(?<=\d)(?=[a-zA-Z])", " ", termo)
         params = {"status": "active", "site_id": SITE, "q": termo}
         if offset:
             params["offset"] = offset
@@ -790,6 +792,10 @@ class FonteMercadoLivre:
         if erro:
             return ResultadoBusca(erro=f"site: {erro}", detalhe=f"site do ML: {erro}")
         achados = achados_do_html(html, so_oficial=False)[:MAX_ANUNCIOS_SITE]
+        if not achados:  # diz que página veio (ajuda a saber se o layout mudou ou se era outra coisa)
+            titulo = BeautifulSoup(html, coleta.PARSER).title
+            nome = re.sub(r"\s+", " ", titulo.get_text(" ", strip=True))[:60] if titulo else "sem título"
+            return ResultadoBusca(detalhe=f"site do ML: nenhum anúncio na página (\"{nome}\")")
         return ResultadoBusca(achados=achados, detalhe=f"site do ML: {len(achados)} anúncio(s)")
 
     def _varrer_site(self, termo):
