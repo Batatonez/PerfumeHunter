@@ -58,16 +58,17 @@ def _pular_peso(rota):
     return rota.continue_()
 
 
-def baixar_html(url, esperar=None, tempo_s=TEMPO_S, executavel=None):
+def baixar_html(url, esperar=None, tempo_s=TEMPO_S, executavel=None, espera_vez_s=None):
     """Abre `url` e devolve (html_bytes, erro, bloqueado). `esperar`: seletor CSS do conteúdo
-    (espera ele aparecer; se não aparecer, devolve a página como estiver)."""
+    (espera ele aparecer; se não aparecer, devolve a página como estiver). `espera_vez_s`: quanto
+    esperar se outra pesquisa estiver usando o navegador (padrão: tempo_s)."""
     try:
         from playwright.sync_api import Error as ErroPW
         from playwright.sync_api import TimeoutError as TempoPW
         from playwright.sync_api import sync_playwright
     except ImportError:
         return None, "navegador não instalado (rode no notebook: scentinel-update)", False
-    if not _uma_por_vez.acquire(timeout=tempo_s):
+    if not _uma_por_vez.acquire(timeout=tempo_s if espera_vez_s is None else espera_vez_s):
         return None, "navegador ocupado com outra pesquisa", False
     try:
         with sync_playwright() as p:
@@ -82,18 +83,26 @@ def baixar_html(url, esperar=None, tempo_s=TEMPO_S, executavel=None):
                 )
                 pagina = contexto.new_page()
                 pagina.route("**/*", _pular_peso)
-                pagina.goto(url, wait_until="domcontentloaded", timeout=tempo_s * 1000)
+                resposta = pagina.goto(url, wait_until="domcontentloaded", timeout=tempo_s * 1000)
                 if _BLOQUEIO.search(pagina.url):
                     return None, "o site pediu verificação (não forcei)", True
+                status = resposta.status if resposta else 200
+                if status in (403, 429):  # recusou (e não gasta 10 s esperando o conteúdo)
+                    return None, f"o site recusou (HTTP {status}, não forcei)", True
+                if status >= 400:
+                    return None, f"o site respondeu HTTP {status}", False
+                achou = True
                 if esperar:
                     try:
                         pagina.wait_for_selector(esperar, timeout=min(10, tempo_s) * 1000)
                     except TempoPW:
-                        pass  # sem resultado, ou página diferente: devolve o que tiver
-                html = pagina.content()
+                        achou = False  # sem resultado, ou página diferente: devolve o que tiver
+                html = pagina.content().encode("utf-8")
                 if _BLOQUEIO.search(pagina.url):
                     return None, "o site pediu verificação (não forcei)", True
-                return html.encode("utf-8"), None, False
+                if not achou and coleta._RE_CAPTCHA.search(html[:300_000]):  # desafio na mesma URL
+                    return None, "o site pediu verificação (não forcei)", True
+                return html, None, False
             finally:
                 navegador.close()
     except TempoPW:

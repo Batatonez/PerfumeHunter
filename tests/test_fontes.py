@@ -815,7 +815,7 @@ def test_ml_locate_junta_catalogo_e_site(monkeypatch, tmp_path):
     }))
     urls = []
     monkeypatch.setattr(ml.navegador, "baixar_html",
-                        lambda url, esperar=None: (urls.append(url), (HTML_SITE.encode(), None, False))[1])
+                        lambda url, esperar=None, **kw: (urls.append(url), (HTML_SITE.encode(), None, False))[1])
     res = ml.FonteMercadoLivre().buscar_ao_vivo("Queening Mind Games")
     assert urls == ["https://lista.mercadolivre.com.br/queening-mind-games"]
     # o produto do catálogo vem da API (sabe que é loja oficial); o do site com o mesmo /p/MLB1 não repete
@@ -834,17 +834,17 @@ def test_ml_locate_site_fora_ou_api_fora(monkeypatch, tmp_path):
         "/products/MLB1/items": ({"results": [ITENS_P1["results"][1]]}, None, False),
     }))
     monkeypatch.setattr(ml.navegador, "baixar_html",
-                        lambda url, esperar=None: (None, "o site pediu verificação (não forcei)", True))
+                        lambda url, esperar=None, **kw: (None, "o site pediu verificação (não forcei)", True))
     res = ml.FonteMercadoLivre().buscar_ao_vivo("sauvage")
     assert [a.preco for a in res.achados] == [520.0] and not res.erro and not res.bloqueado
     assert "site do ML: o site pediu verificação" in res.detalhe
-    # API recusou (429) mas o site achou: mostra o site sem pausar o ML
+    # API recusou (429) mas o site achou: mostra o site E o bloqueio da API vale (pausa curta, como sempre)
     monkeypatch.setattr(ml, "baixar_json", _api_falsa({"/products/search": (None, "bloqueado (HTTP 429)", True)}))
-    monkeypatch.setattr(ml.navegador, "baixar_html", lambda url, esperar=None: (HTML_SITE.encode(), None, False))
+    monkeypatch.setattr(ml.navegador, "baixar_html", lambda url, esperar=None, **kw: (HTML_SITE.encode(), None, False))
     res = ml.FonteMercadoLivre().buscar_ao_vivo("queening")
-    assert len(res.achados) == 2 and not res.bloqueado and not res.erro
+    assert len(res.achados) == 2 and res.bloqueado
     # os dois sem nada: o bloqueio da API vale (pra pausar como sempre)
-    monkeypatch.setattr(ml.navegador, "baixar_html", lambda url, esperar=None: (None, "x", False))
+    monkeypatch.setattr(ml.navegador, "baixar_html", lambda url, esperar=None, **kw: (None, "x", False))
     res = ml.FonteMercadoLivre().buscar_ao_vivo("queening")
     assert res.bloqueado and res.pausa_horas == 0.5
     # navegador desligado no config: só a API
@@ -877,7 +877,11 @@ def test_ml_varredura_pelo_site_so_loja_oficial(monkeypatch, tmp_path):
     urls = []
     monkeypatch.setattr(ml.navegador, "disponivel", lambda: True)
     monkeypatch.setattr(ml.navegador, "baixar_html",
-                        lambda url, esperar=None: (urls.append(url), (HTML_SITE.encode(), None, False))[1])
+                        lambda url, esperar=None, **kw: (urls.append(url), (HTML_SITE.encode(), None, False))[1])
+    chamadas = []
+    monkeypatch.setattr(ml, "baixar_json", _api_falsa({
+        "/products/MLB1": (_produto_bruto("MLB1", "Queening Extrait 100ml", "Mind Games", genero="Masculino"),
+                           None, False)}, chamadas))
     fonte = ml.FonteMercadoLivre(termos_varredura=["perfume masculino"], termos_site=["perfume masculino",
                                                                                      "perfume feminino"])
     fonte.publico = "masculino"
@@ -886,19 +890,115 @@ def test_ml_varredura_pelo_site_so_loja_oficial(monkeypatch, tmp_path):
     assert 'ML site "perfume feminino" (loja oficial)' not in tarefas  # canal masculino
     res = tarefas['ML site "perfume masculino" (loja oficial)']()
     assert urls == ["https://lista.mercadolivre.com.br/perfume-masculino_Loja_all"]
-    assert all(a.oficial for a in res.achados) and len(res.achados) == 2  # a busca já veio filtrada
-    assert "https://www.mercadolivre.com.br/p/MLB1" in [a.url for a in res.achados]
+    # o card do catálogo ganha o público do catálogo (1 chamada); o card sem catálogo e sem "masculino" no
+    # título fica de fora do canal masculino (pode ser feminino)
+    assert [(a.url, a.genero, a.marca, a.oficial) for a in res.achados] == [
+        ("https://www.mercadolivre.com.br/p/MLB1", "m", "Mind Games", True)]
+    assert [c[0] for c in chamadas] == ["/products/MLB1"]
 
 
 def test_ml_site_com_problema_nao_conta_como_erro_do_ml(monkeypatch, tmp_path):
     _com_login(monkeypatch, tmp_path)
     monkeypatch.setattr(ml.navegador, "disponivel", lambda: True)
-    monkeypatch.setattr(ml.navegador, "baixar_html", lambda url, esperar=None: (None, "Chromium não instalado", False))
+    monkeypatch.setattr(ml.navegador, "baixar_html", lambda url, esperar=None, **kw: (None, "Chromium não instalado", False))
     fonte = ml.FonteMercadoLivre(termos_site=["perfume masculino"])
     res = fonte._varrer_site("perfume masculino")
     assert res.pulado and not res.erro  # não pausa o ML (a API segue)
-    monkeypatch.setattr(ml.navegador, "baixar_html", lambda url, esperar=None: (None, "pediu verificação", True))
+    monkeypatch.setattr(ml.navegador, "baixar_html", lambda url, esperar=None, **kw: (None, "pediu verificação", True))
     assert fonte._varrer_site("perfume masculino").pulado
     assert not any("site" in r for r, _ in fonte.tarefas_varredura())  # site pediu verificação: para 6 h
     monkeypatch.setattr(ml.navegador, "disponivel", lambda: False)
     assert not any("site" in r for r, _ in ml.FonteMercadoLivre().tarefas_varredura())  # sem playwright
+
+
+
+def test_ml_site_feminino_do_catalogo_nao_entra_no_canal_masculino(monkeypatch, tmp_path):
+    _com_login(monkeypatch, tmp_path)
+    monkeypatch.setattr(ml, "baixar_json", _api_falsa({
+        "/products/MLB1": (_produto_bruto("MLB1", "Yara Eau de Parfum 100ml", "Lattafa", genero="Feminino"),
+                           None, False)}))
+    fonte = ml.FonteMercadoLivre()
+    fonte.publico = "masculino"
+    cards = [ml.Achado("Lattafa Yara Eau De Parfum 100ml", "https://www.mercadolivre.com.br/p/MLB1", 200,
+                       "Mercado Livre", oficial=True),
+             ml.Achado("Perfume Arabe Masculino Club 100ml", "https://produto.mercadolivre.com.br/MLB-9-x", 150,
+                       "Mercado Livre", oficial=True)]
+    assert [a.url for a in fonte._com_dados_do_catalogo(cards)] == ["https://produto.mercadolivre.com.br/MLB-9-x"]
+    fonte.publico = "todos"
+    assert len(fonte._com_dados_do_catalogo(cards)) == 2
+
+
+def test_ml_locate_site_lento_nao_perde_o_catalogo(monkeypatch, tmp_path):
+    import time as _t
+
+    _com_login(monkeypatch, tmp_path)
+    monkeypatch.setattr(ml, "PRAZO_SITE_LOCATE_S", 0.2)
+    monkeypatch.setattr(ml, "baixar_json", _api_falsa({
+        "/products/search": ({"results": [_produto_bruto("MLB1", "Perfume Sauvage Dior EDP 100ml")]}, None, False),
+        "/products/MLB1/items": ({"results": [ITENS_P1["results"][1]]}, None, False),
+    }))
+    monkeypatch.setattr(ml.navegador, "baixar_html", lambda url, **kw: (_t.sleep(1.5), (None, "x", False))[1])
+    inicio = _t.monotonic()
+    res = ml.FonteMercadoLivre().buscar_ao_vivo("sauvage")
+    assert _t.monotonic() - inicio < 1.2  # não espera o navegador lento
+    assert [a.preco for a in res.achados] == [520.0] and "site do ML: demorou demais" in res.detalhe
+
+
+def test_ml_locate_api_bloqueada_com_site_mostra_e_pausa(monkeypatch, tmp_path):
+    _com_login(monkeypatch, tmp_path)
+    monkeypatch.setattr(ml, "baixar_json", _api_falsa({"/products/search": (None, "bloqueado (HTTP 429)", True)}))
+    monkeypatch.setattr(ml.navegador, "baixar_html", lambda url, **kw: (HTML_SITE.encode(), None, False))
+    res = ml.FonteMercadoLivre().buscar_ao_vivo("queening")
+    assert len(res.achados) == 2 and res.bloqueado and res.pausa_horas == 0.5  # mostra o site e pausa a API
+
+
+def test_ml_locate_nao_repete_produto_sem_loja_oficial(monkeypatch, tmp_path):
+    """Produto do catálogo só com vendedor comum: o link da API (anúncio) e o card /p/ do site são o mesmo."""
+    _com_login(monkeypatch, tmp_path)
+    monkeypatch.setattr(ml, "baixar_json", _api_falsa({
+        "/products/search": ({"results": [_produto_bruto("MLB1", "Perfume Queening Mind Games Extrait 100ml")]},
+                             None, False),
+        "/products/MLB1/items": ({"results": [ITENS_P1["results"][0]]}, None, False),  # só vendedor comum
+    }))
+    monkeypatch.setattr(ml.navegador, "baixar_html", lambda url, **kw: (HTML_SITE.encode(), None, False))
+    res = ml.FonteMercadoLivre().buscar_ao_vivo("queening")
+    assert [a.url for a in res.achados] == ["https://produto.mercadolivre.com.br/MLB-10-_JM",
+                                            "https://produto.mercadolivre.com.br/MLB-5550001-queening-mind-games-_JM"]
+
+
+def test_navegador_de_verdade_reconhece_recusa():
+    """403/429 (ou desafio na mesma URL) é bloqueio, não "busca vazia" (pula se não tiver Chromium)."""
+    import http.server
+    import threading
+
+    import pytest
+
+    from scentinel import navegador
+
+    if not navegador.disponivel():
+        pytest.skip("playwright não instalado")
+
+    class Servidor(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            codigo = 429 if "limite" in self.path else 200
+            corpo = b"<html><body>Acesso negado <div class='g-recaptcha'></div></body></html>"
+            self.send_response(codigo)
+            self.send_header("Content-Type", "text/html")
+            self.end_headers()
+            self.wfile.write(corpo)
+
+        def log_message(self, *a):
+            pass
+
+    srv = http.server.HTTPServer(("127.0.0.1", 0), Servidor)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        base = f"http://127.0.0.1:{srv.server_port}"
+        html, erro, bloqueado = navegador.baixar_html(f"{base}/limite", esperar="div.poly-card", tempo_s=40)
+        if erro and not bloqueado:
+            pytest.skip(erro)  # Chromium não instalado nessa máquina
+        assert bloqueado and "429" in erro
+        html, erro, bloqueado = navegador.baixar_html(f"{base}/desafio", esperar="div.poly-card", tempo_s=40)
+        assert bloqueado and html is None  # 200 com captcha e sem resultado: também é bloqueio
+    finally:
+        srv.shutdown()

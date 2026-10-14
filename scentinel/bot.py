@@ -50,6 +50,13 @@ def horario_top(texto, fuso_nome):
         return None
 
 
+def horarios_vitrine(minutos, fuso_nome):
+    """Horários redondos da vitrine: a cada 15 min -> 00:00, 00:15, 00:30... (no fuso do config)."""
+    passo = max(1, int(round(minutos)))
+    tz = formato.fuso(fuso_nome)
+    return [dt.time(m // 60, m % 60, tzinfo=tz) for m in range(0, 24 * 60, passo)]
+
+
 class BotScentinel(discord.Client):
     def __init__(self, cfg, segredos, con):
         intents = discord.Intents.none()
@@ -78,7 +85,8 @@ class BotScentinel(discord.Client):
                 if horario:
                     self.loop_top.change_interval(time=horario)
                 if cfg.descoberta.vitrine_minutos:
-                    self.loop_vitrine.change_interval(minutes=cfg.descoberta.vitrine_minutos)
+                    # em horário redondo (10:00, 10:15, 10:30...), não "15 min depois de ligar"
+                    self.loop_vitrine.change_interval(time=horarios_vitrine(cfg.descoberta.vitrine_minutos, cfg.fuso))
 
     # ------------------------------------------------------------
     # ciclo de vida

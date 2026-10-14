@@ -290,7 +290,9 @@ def test_vitrine_liga_com_o_bot():
     from scentinel.bot import BotScentinel, texto_vitrine
 
     bot = BotScentinel(config.carregar_config(), config.Segredos("x", 1, 2, 3), db.conectar(":memory:"))
-    assert bot.loop_vitrine.minutes == 15
+    horarios = bot.loop_vitrine.time  # horário redondo: 00:00, 00:15, 00:30... (São Paulo)
+    assert len(horarios) == 96 and [(h.hour, h.minute) for h in horarios[:3]] == [(0, 0), (0, 15), (0, 30)]
+    assert str(horarios[0].tzinfo) == "America/Sao_Paulo"
     assert "a cada 15 min" in texto_vitrine({"minutos": 15, "conhecidas": 3, "ultimo_post": None})
     assert "desligada" in texto_vitrine({"minutos": 0, "conhecidas": 0, "ultimo_post": None})
 

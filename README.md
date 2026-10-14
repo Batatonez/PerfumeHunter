@@ -337,7 +337,7 @@ O que ele faz com o que acha:
 - **Compara com o preço normal de mercado** do catálogo, com o histórico real de 30 dias e com o "de R$" da loja, e fica sempre com o **menor** dos três (assim promo falsa de "de R$ 999 por R$ 699" não passa).
 - **Posta só o que vale:** a partir do nível 2 (20% abaixo da referência), ou abaixo do "preço bom" do perfume. Se o mesmo perfume e tamanho estiver mais barato em outra loja, posta só o mais barato. No máximo 10 posts por hora.
 - **🏆 Top do dia** às 19h com os 5 melhores (um por perfume). `/top` mostra na hora.
-- **🛍️ Vitrine:** a cada 15 min posta a melhor oferta que o bot conhece (promo primeiro, depois maior desconto, depois perfume do catálogo), tentando não repetir o mesmo perfume por 3 dias. Se acabar o que mostrar, repete o que saiu há mais tempo. Pula a vez se acabou de sair promo. `vitrine_minutos = 0` desliga.
+- **🛍️ Vitrine:** a cada 15 min, em horário redondo (10:00, 10:15, 10:30...), posta a melhor oferta que o bot conhece (promo primeiro, depois maior desconto, depois perfume do catálogo), tentando não repetir o mesmo perfume por 3 dias. Se acabar o que mostrar, repete o que saiu há mais tempo. Pula a vez se acabou de sair promo. `vitrine_minutos = 0` desliga.
 - Loja que bloquear é pausada (6 h, 12 h, 24 h...) e avisada uma vez no canal. Loja que só dá erro (provavelmente não tem essa busca) é pausada por 24 h, sem avisar.
 
 **Testar quais lojas funcionam** (no notebook; daqui do Claude as lojas são bloqueadas):

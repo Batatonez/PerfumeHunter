@@ -4,6 +4,7 @@ Os embeds são montados como dict puro (testável) e viram discord.Embed
 com discord.Embed.from_dict() no bot.
 """
 
+import re
 from datetime import UTC, timedelta, timezone
 
 from scentinel.promo import FONTE_CATALOGO, FONTE_LOJA, FONTE_MERCADO
@@ -242,9 +243,11 @@ def embed_ao_vivo(res, max_linhas=8):
         for loja, motivo in getattr(res, "detalhes", None) or []:
             if motivo:
                 linhas.append(f"• {loja}: {motivo}")
-        if any("catálogo do ML" in (m or "") for _, m in getattr(res, "detalhes", None) or []):
-            linhas.append("_O bot só enxerga os produtos do catálogo do ML: anúncio fora do catálogo "
-                          "a API do ML não mostra mais._")
+        motivos = " ".join(m or "" for _, m in getattr(res, "detalhes", None) or [])
+        if "catálogo do ML" in motivos and not re.search(r"site do ML: \d+ anúncio", motivos):
+            # a busca do site não rodou (ou falhou): só o catálogo foi olhado
+            linhas.append("_A busca no site do ML não rodou agora: só o catálogo foi olhado, e anúncio fora "
+                          "dele a API do ML não mostra._")
         return {
             "title": f"🔎 {res.consulta}",
             "color": COR_NEUTRA,

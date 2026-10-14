@@ -14,6 +14,7 @@ import json
 import logging
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
 import os
 import random
 import re
@@ -336,6 +337,7 @@ def achado_do_produto(produto, oferta, link_do_vendedor=False, bem_avaliado=Fals
         imagem=produto.imagem,
         genero=produto.genero,
         bem_avaliado=bem_avaliado,
+        chave=produto.id,
     )
 
 
@@ -364,6 +366,9 @@ def detalhe_catalogo(total, situacao):
 
 
 MAX_ANUNCIOS_SITE = 48  # 1ª página da busca do site
+MAX_ENRIQUECER = 10  # cards do site que podem custar 1 chamada da API pra saber o público
+TEMPO_SITE_LOCATE_S = 25  # abrir a busca do site no /locate
+PRAZO_SITE_LOCATE_S = 35  # depois do catálogo pronto, quanto mais espera o site antes de responder sem ele
 
 
 def _chave_do_link(url):
@@ -381,14 +386,19 @@ def juntar_resultados(api, site):
     achados, vistos = [], set()
     for a in api.achados + site.achados:
         chave = _chave_do_link(a.url)
-        if chave not in vistos:
-            vistos.add(chave)
-            achados.append(a)
+        if chave in vistos:
+            continue
+        vistos.add(chave)
+        if a.chave:  # vendedor comum (link do anúncio) de um produto do catálogo: o card /p/ do site não repete
+            vistos.add(f"p:{a.chave}")
+        achados.append(a)
     detalhe = "; ".join(d for d in (api.detalhe or (f"catálogo: {api.erro}" if api.erro else None), site.detalhe)
                         if d) or None
-    if achados:
+    if achados and not api.bloqueado:
         return ResultadoBusca(achados=achados, detalhe=detalhe)
-    return ResultadoBusca(erro=api.erro, bloqueado=api.bloqueado, pausa_horas=api.pausa_horas, detalhe=detalhe)
+    # API bloqueada: o bloqueio vale (pausa como sempre), mesmo que o site tenha achado algo pra mostrar
+    return ResultadoBusca(achados=achados, erro=api.erro, bloqueado=api.bloqueado, pausa_horas=api.pausa_horas,
+                          detalhe=detalhe)
 
 
 def _grave(erro):
@@ -775,7 +785,8 @@ class FonteMercadoLivre:
     def _buscar_site(self, termo):
         slug = re.sub(r"[^a-z0-9]+", "-", catalogo.texto_titulo(termo)).strip("-")
         html, erro, _ = navegador.baixar_html(f"https://lista.mercadolivre.com.br/{slug}",
-                                              esperar="div.poly-card, li.ui-search-layout__item")
+                                              esperar="div.poly-card, li.ui-search-layout__item",
+                                              tempo_s=TEMPO_SITE_LOCATE_S, espera_vez_s=5)
         if erro:
             return ResultadoBusca(erro=f"site: {erro}", detalhe=f"site do ML: {erro}")
         achados = achados_do_html(html, so_oficial=False)[:MAX_ANUNCIOS_SITE]
@@ -794,16 +805,53 @@ class FonteMercadoLivre:
                 self._sem_site_ate = time.time() + 6 * 3600
             log.warning("ML site \"%s\": %s%s", termo, erro, " (paro o site por 6 h)" if bloqueado else "")
             return ResultadoBusca(pulado=True)
-        return ResultadoBusca(achados=achados_do_html(html, so_oficial=True, ja_filtrado=True)[:MAX_ANUNCIOS_SITE])
+        achados = self._com_dados_do_catalogo(
+            achados_do_html(html, so_oficial=True, ja_filtrado=True)[:MAX_ANUNCIOS_SITE])
+        # página sem nenhum card (layout mudou, desafio...): não conta como busca que funcionou
+        return ResultadoBusca(achados=achados) if achados else ResultadoBusca(pulado=True)
+
+    def _com_dados_do_catalogo(self, achados):
+        """O card do site não diz o público. Produto do catálogo (/p/MLB...): usa nome/marca/ml/público/foto do
+        catálogo (guardados, ou 1 chamada pra até MAX_ENRIQUECER por página). Canal masculino: feminino sai, e card
+        sem catálogo só fica se o título disser masculino ou unissex."""
+        token, pedidos, saida = None, 0, []
+        for a in achados:
+            pid = produto_do_link(a.url)
+            produto = self._produtos.get(pid) if pid else None
+            genero_titulo = catalogo.genero_do_texto(a.titulo)
+            if pid and not produto and pedidos < MAX_ENRIQUECER and not (self._so_masculino and genero_titulo):
+                token = token or self._pegar_token()[0]
+                if token:
+                    pedidos += 1
+                    _respiro()
+                    produto, _ = self._produto(pid, token)
+            if produto:
+                a = Achado(**{**a.__dict__, "titulo": produto.nome, "marca": produto.marca or a.marca,
+                              "ml": produto.ml or a.ml, "genero": produto.genero, "imagem": a.imagem or produto.imagem,
+                              "chave": produto.id})
+            genero = a.genero or genero_titulo
+            if self._so_masculino and genero not in ("m", "u"):
+                continue  # feminino, ou sem como saber: no canal masculino não entra
+            saida.append(a)
+        return saida
 
     def buscar_ao_vivo(self, termo):
-        """/locate: catálogo (API) e site (navegador) ao mesmo tempo, juntando sem repetir o mesmo anúncio."""
+        """/locate: catálogo (API) e site (navegador) ao mesmo tempo, juntando sem repetir o mesmo anúncio.
+        O site tem prazo próprio: se demorar, a resposta sai só com o catálogo (não perde o que a API achou)."""
         if not self.navegador or self.modo == "html":
             return self.buscar(termo)
-        with ThreadPoolExecutor(max_workers=2) as ex:
+        ex = ThreadPoolExecutor(max_workers=2)
+        try:
             pela_api = ex.submit(self.buscar, termo)
             pelo_site = ex.submit(self._buscar_site, termo)
-            return juntar_resultados(pela_api.result(), pelo_site.result())
+            api = pela_api.result()
+            try:
+                site = pelo_site.result(timeout=PRAZO_SITE_LOCATE_S)
+            except FuturesTimeout:
+                site = ResultadoBusca(detalhe="site do ML: demorou demais")
+            return juntar_resultados(api, site)
+        finally:
+            ex.shutdown(wait=False)  # o navegador termina sozinho e libera a vez
 
     # ---------------- o que o bot chama ----------------
 

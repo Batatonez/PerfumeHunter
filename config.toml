@@ -115,7 +115,8 @@ so_menor_preco = true
 top_diario = "19:00"
 top_n = 5
 
-# Vitrine: a cada X minutos posta a melhor oferta que o bot conhece (promo primeiro), tentando não
+# Vitrine: a cada X minutos, em horário redondo (com 15: 10:00, 10:15, 10:30...), posta a melhor oferta que
+# o bot conhece (promo primeiro), tentando não
 # repetir o mesmo perfume por `vitrine_sem_repetir_horas`. Se acabar o que mostrar, repete o mais antigo.
 # 0 desliga (aí só sai post quando aparece promo).
 vitrine_minutos = 15

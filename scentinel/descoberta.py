@@ -12,6 +12,7 @@ Três jeitos de achar oferta, todos passando pelo mesmo motor dos alertas
 
 import asyncio
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -29,6 +30,12 @@ NAO_REPOSTAR_POR = timedelta(days=7)  # mesmo anúncio a preço igual ou maior q
 PRECO_SUSPEITO = 0.35  # perfume do catálogo a menos de 35% do normal: quase certo que não é o produto
 TEMPO_MAX_AO_VIVO_S = 60  # /locate: loja que não respondeu nisso fica de fora da resposta
 PAUSA_LIMITE_MAX_HORAS = 2  # pausa por limite de velocidade (429) nunca passa disso
+
+
+_NAO_E_PERFUME = re.compile(
+    r"\b(vinho|cerveja|whisky|vodka|gin|licor|cachaca|espumante|copo|caneca|garrafa|squeeze|termica|"
+    r"tinta|leite|suco|refrigerante|detergente|amaciante|desinfetante|alcool|cafe|cha|azeite|molho)\b"
+)
 
 
 def _passageiro(erro):
@@ -489,8 +496,12 @@ class Descoberta:
         tokens = texto.split()
         if catalogo.e_lixo(achado.titulo):
             return False  # kit, decant, amostra...
-        if not (catalogo.e_perfume(achado.titulo) or catalogo.extrair_ml(achado.titulo)):
-            return False  # nem é perfume (ex.: "God of Fire" achava um Funko); anúncio com ml no título vale
+        if not catalogo.e_perfume(achado.titulo):
+            # anúncio comum do site às vezes não diz "perfume" ("Queening Mind Games 100ml"): vale se tiver
+            # tamanho de frasco e não for bebida/utensílio (o Funko "God of Fire" não tem ml e fica de fora)
+            ml = catalogo.extrair_ml(achado.titulo)
+            if not ml or ml > 200 or _NAO_E_PERFUME.search(busca.normalizar(achado.titulo)):
+                return False
         if marca_norm and not catalogo._marca_presente(marca_norm, tokens, achado.marca):
             return False
         return all(catalogo._tem_palavra(p, tokens) for p in palavras)
@@ -524,9 +535,10 @@ class Descoberta:
                 resultado.lojas_falha.append(fonte.nome)
                 continue
             ok, _ = await self._tratar_resultado(fonte, res, agora)
-            if not ok:
+            if not ok and not res.achados:
                 resultado.lojas_falha.append(fonte.nome)
                 continue
+            # bloqueou mas o site achou algo: a pausa já foi aplicada, e o que veio ainda aparece
             resultado.lojas_ok.append(fonte.nome)
             antes = len(ofertas)
             for a in res.achados:

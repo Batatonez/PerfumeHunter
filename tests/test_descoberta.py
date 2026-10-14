@@ -598,7 +598,9 @@ def test_locate_explica_por_que_nao_achou(amb):
                             ("Loja B", "1 anúncio(s) com outro nome/tamanho")]
     texto = embed_ao_vivo(res)["description"]
     assert "• Loja A: nenhum produto com esse nome no catálogo do ML" in texto
-    assert "fora do catálogo" in texto  # explica o limite da API do ML
+    assert "só o catálogo foi olhado" in texto  # explica o limite da API do ML (o site não rodou)
+    res.detalhes.append(("Loja A", "site do ML: 12 anúncio(s)"))
+    assert "só o catálogo" not in embed_ao_vivo(res)["description"]  # o site rodou: não precisa da nota
 
 
 # ============================================================
@@ -737,3 +739,21 @@ def test_locate_usa_a_busca_ao_vivo_da_loja_e_aceita_titulo_com_ml(amb):
     amb.desc.fontes = [FonteComSite("ml", "Loja A")]
     res = rodar(amb.desc.buscar_ao_vivo("queening"))
     assert [a.url for a, _, _ in res.ofertas] == ["https://a/q"]
+
+
+
+def test_locate_titulo_so_com_ml_nao_aceita_bebida(amb):
+    amb.a.programar("queening",
+                    achado("Queening Mind Games 100ml Original", 1890, "Loja A", "https://a/q"),
+                    achado("Vinho Tinto Queening Reserva 750ml", 90, "Loja A", "https://a/vinho"),
+                    achado("Caneca Queening 300ml", 40, "Loja A", "https://a/caneca"))
+    res = rodar(amb.desc.buscar_ao_vivo("queening"))
+    assert [a.url for a, _, _ in res.ofertas] == ["https://a/q"]
+
+
+def test_locate_mostra_o_que_veio_mesmo_com_bloqueio(amb):
+    amb.a.respostas["queening"] = [ResultadoBusca(
+        achados=[achado("Queening Mind Games 100ml Original", 1890, "Loja A", "https://a/q")],
+        erro="api: devagar (HTTP 429)", bloqueado=True, pausa_horas=0.5)]
+    res = rodar(amb.desc.buscar_ao_vivo("queening"))
+    assert [a.url for a, _, _ in res.ofertas] == ["https://a/q"] and amb.desc.pausada(amb.a)
