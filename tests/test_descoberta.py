@@ -898,3 +898,62 @@ def test_alerta_pessoal_respeita_tamanho_e_pausa(amb):
     antes = len(amb.a.chamadas)
     rodar(amb.desc.checar_alertas_usuarios(enviar))
     assert len(amb.a.chamadas) == antes  # tudo pausado: não força
+
+
+def _semana_de_varreduras(amb, *paginas):
+    """Cada página é uma varredura; 7 h entre elas (preço igual só é gravado de novo depois de 6 h)."""
+    for achados in paginas:
+        amb.a.varredura = [pagina(*achados)]
+        rodar(amb.desc.varredura(forcar=True))
+        amb.relogio.agora += timedelta(hours=7)
+
+
+def test_catalogo_automatico_poe_masculino_visto_mais_de_uma_vez(amb, tmp_path):
+    from scentinel import autocatalogo
+
+    arq = tmp_path / "auto.json"
+    amb.cfg.descoberta.max_alertas_por_hora = 0
+    hayaati = achado("Perfume Lattafa Hayaati Eau de Parfum 100ml Masculino", 180, "Loja A", "https://a/hay",
+                     marca="Lattafa")
+    hayaati2 = achado("Perfume Lattafa Hayaati Eau de Parfum 100ml Masculino", 190, "Loja A", "https://a/hay2",
+                      marca="Lattafa")
+    maleky = achado("Perfume Lattafa Hayaati Al Maleky EDP 100ml Masculino", 200, "Loja A", "https://a/mal",
+                    marca="Lattafa")
+    yara = achado("Perfume Lattafa Yara EDP 100ml Feminino", 150, "Loja A", "https://a/yara", marca="Lattafa")
+    xpto = achado("Perfume Xpto Bravo Masculino EDP 100ml", 90, "Loja A", "https://a/xpto", marca="Xpto")
+    uma_vez = achado("Perfume Afnan Turathi Blue EDP 90ml Masculino", 260, "Loja A", "https://a/tur", marca="Afnan")
+    sauvage = achado("Sauvage Dior Eau de Parfum 100ml", 840, "Loja A", "https://a/sauvage")
+    _semana_de_varreduras(amb, [hayaati, maleky, yara, xpto, uma_vez, sauvage],
+                          [hayaati, hayaati2, maleky, yara, xpto, sauvage])
+
+    novos = autocatalogo.rodar(amb.con, amb.desc.itens, amb.relogio.agora, arq)
+    por_nome = {i.nome: (i, n) for i, n in novos}
+    assert set(por_nome) == {"Hayaati", "Hayaati Al Maleky"}  # sem feminino, marca estranha, 1 vez só, catálogo
+    item, leituras = por_nome["Hayaati"]
+    assert leituras == 3 and item.marca == "Lattafa" and item.concentracao == "EDP" and item.publico == "masc"
+    assert item.categoria == "arabe" and item.ml == [100] and item.preco_normal == 180 and item.preco_bom == 140
+    assert item.evitar == ["maleky"]  # não engole o Hayaati Al Maleky
+    assert novos[0][0].nome == "Hayaati"  # o mais visto primeiro
+
+    # entra na hora e os anúncios passam a ser desse item
+    amb.desc.adicionar_itens([i for i, _ in novos])
+    _semana_de_varreduras(amb, [hayaati, maleky])
+    assert db.anuncio_por_url(amb.con, "https://a/hay")["catalogo_id"] == item.id
+    assert db.anuncio_por_url(amb.con, "https://a/mal")["catalogo_id"] == por_nome["Hayaati Al Maleky"][0].id
+
+    # salvo no arquivo, e o que o dono tira não volta
+    assert {i.id for i in autocatalogo.itens_salvos(arq=arq)} == {i.id for i, _ in novos}
+    assert autocatalogo.remover(item.id, arq)["nome"] == "Hayaati"
+    amb.desc.remover_item(item.id)
+    assert autocatalogo.rodar(amb.con, amb.desc.itens, amb.relogio.agora, arq) == []
+    assert item.id in autocatalogo.carregar(arq)["removidos"]
+
+
+def test_nome_do_titulo():
+    from scentinel.autocatalogo import nome_do_titulo
+
+    assert nome_do_titulo("Perfume Árabe Al Haramain L'Aventure EDP 100ml Masculino", "Al Haramain") == "L'Aventure"
+    assert nome_do_titulo("Perfume Armaf Club De Nuit Iconic Eau De Parfum 105 ml Masculino", "Armaf") == \
+        "Club De Nuit Iconic"
+    assert nome_do_titulo("Malbec Desodorante Colônia 100ml", "O Boticário") == "Malbec"
+    assert nome_do_titulo("Perfume Lattafa EDP 100ml", "Lattafa") is None

@@ -97,6 +97,19 @@ class Descoberta:
             if hasattr(fonte, "publico"):
                 fonte.publico = self.cfg.publico
 
+    def adicionar_itens(self, novos):
+        """Catálogo automático: itens novos entram na hora (próxima rodada do catálogo já busca eles)."""
+        ids = {i.id for i in self.itens}
+        for item in novos:
+            if item.id not in ids:
+                self.itens.append(item)
+                self.cacador.catalogo[item.id] = item
+                ids.add(item.id)
+
+    def remover_item(self, item_id):
+        self.itens = [i for i in self.itens if i.id != item_id]
+        self.cacador.catalogo.pop(item_id, None)
+
     # ------------------------------------------------------------
     # lojas pausadas, bloqueio e erro
     # ------------------------------------------------------------

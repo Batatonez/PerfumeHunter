@@ -371,3 +371,21 @@ def embed_alerta_usuario(alerta, achado, ml, pct):
     if achado.imagem:
         embed["thumbnail"] = {"url": achado.imagem}
     return embed
+
+
+# ============================================================
+# 📚 catálogo automático
+# ============================================================
+
+def embed_catalogo_novo(itens):
+    linhas = []
+    for i in itens:
+        linhas.append(f"• **{i.nome_exibicao}** ({i.marca}) · {i.rotulo_categoria} · normal ~"
+                      f"{formatar_reais(i.preco_normal)} ({i.ml_ref:g}ml)")
+    return {
+        "title": f"📚 {len(itens)} perfume(s) novo(s) no catálogo",
+        "color": COR_NEUTRA,
+        "description": cortar("Vi esses masculinos/unissex no Mercado Livre essa semana. Agora eu caço promo deles "
+                              "também:\n\n" + "\n".join(linhas)),
+        "footer": {"text": "O preço normal é a mediana da semana · o dono tira algum com /catalogo remover"},
+    }

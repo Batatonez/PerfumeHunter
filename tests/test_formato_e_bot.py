@@ -97,7 +97,7 @@ def test_comandos_registram_sem_erro():
     registrar_comandos(bot.tree)
     nomes = {c.name for c in bot.tree.get_commands()}
     assert nomes == {"locate", "add", "remove", "lista", "historico", "checar", "teste_alerta", "top", "varrer",
-                     "status", "despausar", "clear", "send", "atualizar", "alerta", "cargos"}
+                     "status", "despausar", "clear", "send", "atualizar", "alerta", "cargos", "catalogo"}
 
 
 def test_bot_fora_do_servidor_mostra_link_de_convite(caplog):
@@ -616,3 +616,60 @@ def test_alerta_de_promo_marca_o_cargo():
     assert kw["content"] == "<@3> <@&101> <@&100>"
     assert kw["allowed_mentions"].users is True and [c.name for c in kw["allowed_mentions"].roles] == [
         "🔥 Todas as promos", "🕌 Árabe"]
+
+
+def test_catalogo_automatico_pelo_bot():
+    import asyncio
+    from types import SimpleNamespace
+
+    from scentinel import autocatalogo
+    from scentinel.bot import BotScentinel, registrar_comandos
+    from scentinel.catalogo import ItemCatalogo
+
+    bot = BotScentinel(config.carregar_config(), config.Segredos("x", 1, 2, 42), db.conectar(":memory:"))
+    registrar_comandos(bot.tree)
+    assert bot.loop_autocatalogo.time[0].hour == 20
+    novo = ItemCatalogo("auto-lattafa-hayaati-edp", "Hayaati", "Lattafa", "EDP", [100.0], "masc", "arabe",
+                        180, 100.0, 140, busca=["hayaati lattafa"])
+    original = autocatalogo.escolher
+    autocatalogo.escolher = lambda preparado, itens, removidos=(), limite=15: [(novo, 3)]
+    enviados = []
+
+    async def canal():
+        async def send(**kw):
+            enviados.append(kw["embed"])
+        return SimpleNamespace(send=send)
+
+    bot.canal = canal
+    try:
+        assert asyncio.run(bot.rodar_autocatalogo()) == [(novo, 3)]
+    finally:
+        autocatalogo.escolher = original
+    assert novo in bot.descoberta.itens and bot.cacador.catalogo[novo.id] is novo
+    assert enviados[0].title == "📚 1 perfume(s) novo(s) no catálogo"
+    assert "**Hayaati EDP** (Lattafa) · 🕌 Árabe · normal ~R$ 180,00 (100ml)" in enviados[0].description
+
+    respostas = []
+
+    async def responder(texto, **kw):
+        respostas.append(texto)
+
+    grupo = bot.tree.get_command("catalogo")
+
+    def interacao(uid):
+        return SimpleNamespace(client=bot, user=SimpleNamespace(id=uid),
+                               response=SimpleNamespace(send_message=responder))
+
+    asyncio.run(grupo.get_command("remover").callback(interacao(7), perfume=novo.id))
+    assert "Só o dono" in respostas[-1] and novo in bot.descoberta.itens
+    asyncio.run(grupo.get_command("novos").callback(interacao(42)))
+    assert "Hayaati EDP (Lattafa)" in respostas[-1]
+    asyncio.run(grupo.get_command("remover").callback(interacao(42), perfume=novo.id))
+    assert "Tirei **Hayaati EDP**" in respostas[-1] and novo not in bot.descoberta.itens
+    assert autocatalogo.itens_salvos() == [] and novo.id in autocatalogo.carregar()["removidos"]
+
+    # reiniciou: o que estava salvo volta pro catálogo do bot
+    autocatalogo.gravar([(ItemCatalogo("auto-x", "X Bravo", "Lattafa", "EDP", [100.0], "masc", "arabe", 200, 100.0,
+                                       156), 2)])
+    bot2 = BotScentinel(config.carregar_config(), config.Segredos("x", 1, 2, 42), db.conectar(":memory:"))
+    assert any(i.id == "auto-x" for i in bot2.descoberta.itens)

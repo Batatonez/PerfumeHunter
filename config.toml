@@ -116,6 +116,10 @@ top_diario = "19:00"
 top_n = 5
 # Domingo, nesse mesmo horário, sai o 🏆 Top da semana (maiores % OFF que passaram no canal em 7 dias).
 top_semanal = true
+# Catálogo automático: todo dia nesse horário o bot põe no catálogo os perfumes masculinos/unissex que
+# viu na semana (de marca conhecida, vistos mais de uma vez). Fica em dados/catalogo_auto.json;
+# o dono tira com /catalogo remover. "" desliga.
+catalogo_auto = "20:00"
 
 # Vitrine: a cada X minutos, em horário redondo (com 15: 10:00, 10:15, 10:30...), posta a melhor oferta que
 # o bot conhece (promo primeiro), tentando não

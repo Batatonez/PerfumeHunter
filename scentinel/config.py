@@ -43,6 +43,7 @@ class ConfigDescoberta:
     top_diario: str = "19:00"  # horário do 🏆 Top do dia ("" desliga)
     top_n: int = 5
     top_semanal: bool = True  # domingo, no horário do top, sai o 🏆 Top da semana no lugar do top do dia
+    catalogo_auto: str = "20:00"  # todo dia nesse horário, perfumes novos da semana entram no catálogo ("" desliga)
     vitrine_minutos: float = 15  # posta a melhor oferta conhecida a cada X min (0 desliga)
     vitrine_sem_repetir_horas: float = 72  # a vitrine evita repetir o mesmo perfume nesse período
     varredura: bool = True  # varre as ofertas de perfume das lojas (estilo canal de promos)
@@ -145,6 +146,7 @@ def carregar_config(caminho=ARQ_CONFIG):
         top_diario=str(d.get("top_diario", "19:00")),
         top_n=int(d.get("top_n", 5)),
         top_semanal=bool(d.get("top_semanal", True)),
+        catalogo_auto=str(d.get("catalogo_auto", "20:00")),
         vitrine_minutos=max(float(d.get("vitrine_minutos", 15)), 0),
         vitrine_sem_repetir_horas=max(float(d.get("vitrine_sem_repetir_horas", 72)), 1),
         varredura=bool(d.get("varredura", True)),

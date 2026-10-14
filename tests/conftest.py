@@ -6,9 +6,11 @@ import pytest
 @pytest.fixture(autouse=True)
 def ml_sem_login(monkeypatch, tmp_path):
     """Os testes nunca usam o login de verdade do ML (dados/ml_token.json e o .env do notebook),
-    nem esperam o respiro entre chamadas da API, nem abrem navegador."""
+    nem esperam o respiro entre chamadas da API, nem abrem navegador, nem mexem no catálogo automático."""
+    from scentinel import autocatalogo
     from scentinel.fontes import mercadolivre as ml
 
+    monkeypatch.setattr(autocatalogo, "ARQ_AUTO", tmp_path / "catalogo_auto_de_teste.json")
     monkeypatch.setattr(ml, "ARQ_TOKEN", tmp_path / "ml_token_de_teste.json")
     monkeypatch.setattr(ml, "_respiro", lambda: None)
     monkeypatch.setattr(ml, "INTERVALO_API_S", 0)

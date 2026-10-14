@@ -9,7 +9,7 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 
-from scentinel import atualizar, busca, catalogo, config, db, formato, grafico, navegador, promo
+from scentinel import atualizar, autocatalogo, busca, catalogo, config, db, formato, grafico, navegador, promo
 from scentinel.descoberta import Descoberta
 from scentinel.fontes import montar_fontes
 from scentinel.caca import Cacador
@@ -159,6 +159,7 @@ class BotScentinel(discord.Client):
         self.descoberta = None
         if cfg.descoberta.ativo:
             itens = catalogo.carregar_catalogo()
+            itens += autocatalogo.itens_salvos({i.id for i in itens})  # o que o catálogo automático já pôs
             fontes = montar_fontes(cfg.descoberta.fontes)
             if itens and fontes:
                 self.descoberta = Descoberta(self.cacador, itens, fontes, enviar_aviso=self.enviar_aviso)
@@ -169,6 +170,9 @@ class BotScentinel(discord.Client):
                 if cfg.descoberta.vitrine_minutos:
                     # em horário redondo (10:00, 10:15, 10:30...), não "15 min depois de ligar"
                     self.loop_vitrine.change_interval(time=horarios_vitrine(cfg.descoberta.vitrine_minutos, cfg.fuso))
+                horario_auto = horario_top(cfg.descoberta.catalogo_auto, cfg.fuso)
+                if horario_auto:
+                    self.loop_autocatalogo.change_interval(time=horario_auto)
 
     # ------------------------------------------------------------
     # ciclo de vida
@@ -203,6 +207,8 @@ class BotScentinel(discord.Client):
                 self.loop_top.start()
             if self.cfg.descoberta.vitrine_minutos:
                 self.loop_vitrine.start()
+            if horario_top(self.cfg.descoberta.catalogo_auto, self.cfg.fuso):
+                self.loop_autocatalogo.start()
 
     async def on_ready(self):
         log.info("✅ Bot online como %s", self.user)
@@ -341,6 +347,36 @@ class BotScentinel(discord.Client):
     @loop_top.before_loop
     async def antes_do_top(self):
         await self.wait_until_ready()
+
+    @tasks.loop(time=dt.time(20, 0))
+    async def loop_autocatalogo(self):
+        try:
+            await self.rodar_autocatalogo()
+        except Exception:
+            log.exception("erro no catálogo automático")
+
+    @loop_autocatalogo.before_loop
+    async def antes_do_autocatalogo(self):
+        await self.wait_until_ready()
+
+    async def rodar_autocatalogo(self, anunciar=True):
+        """Põe no catálogo os perfumes novos da semana e conta no canal. Devolve [(ItemCatalogo, leituras)]."""
+        d = self.descoberta
+        if not d:
+            return []
+        preparado = autocatalogo.preparar(self.con, d.itens)  # banco: na thread do bot
+        removidos = autocatalogo.carregar()["removidos"]
+        novos = await asyncio.to_thread(autocatalogo.escolher, preparado, list(d.itens), removidos)
+        if not novos:
+            log.info("📚 Catálogo automático: nada novo hoje")
+            return []
+        autocatalogo.gravar(novos)
+        d.adicionar_itens([item for item, _ in novos])
+        if anunciar:
+            canal = await self.canal()
+            await canal.send(embed=discord.Embed.from_dict(formato.embed_catalogo_novo([i for i, _ in novos])),
+                             allowed_mentions=discord.AllowedMentions.none())
+        return novos
 
     async def postar_top(self, hoje=None):
         """Top do dia; no domingo, o 🏆 Top da semana (se a semana teve promo; senão, o do dia)."""
@@ -526,6 +562,28 @@ async def autocomplete_meus_alertas(interaction, atual):
         if alvo and alvo not in busca.normalizar(rotulo):
             continue
         escolhas.append(app_commands.Choice(name=rotulo[:100], value=a["id"]))
+    return escolhas[:25]
+
+
+def texto_catalogo_auto(itens):
+    if not itens:
+        return "📚 O catálogo automático ainda não pôs nenhum perfume."
+    linhas = [f"📚 **Catálogo automático: {len(itens)} perfume(s)**"]
+    for i in itens[-40:]:
+        linhas.append(f"• {i.nome_exibicao} ({i.marca}) · {i.rotulo_categoria} · normal ~"
+                      f"{formato.formatar_reais(i.preco_normal)} ({i.ml_ref:g}ml)")
+    linhas.append("Pra tirar um: `/catalogo remover`")
+    return "\n".join(linhas)
+
+
+async def autocomplete_catalogo_auto(interaction, atual):
+    alvo = busca.normalizar(atual)
+    escolhas = []
+    for i in reversed(autocatalogo.itens_salvos()):
+        rotulo = f"{i.nome_exibicao} ({i.marca})"
+        if alvo and alvo not in busca.normalizar(rotulo):
+            continue
+        escolhas.append(app_commands.Choice(name=rotulo[:100], value=i.id[:100]))
     return escolhas[:25]
 
 
@@ -925,6 +983,53 @@ def registrar_comandos(tree):
         await interaction.response.send_message(texto, ephemeral=True)
 
     tree.add_command(grupo_alerta)
+
+    grupo_catalogo = app_commands.Group(name="catalogo", description="Catálogo automático do bot (só o dono)",
+                                        guild_only=True)
+
+    async def _so_dono_com_busca(interaction):
+        bot = interaction.client
+        if not bot.eh_dono(interaction):
+            await interaction.response.send_message("Só o dono pode usar isso 🙅", ephemeral=True)
+            return False
+        if not bot.descoberta:
+            await interaction.response.send_message("A busca automática está desligada no config.toml.", ephemeral=True)
+            return False
+        return True
+
+    @grupo_catalogo.command(name="novos", description="Perfumes que o catálogo automático pôs (só o dono)")
+    async def catalogo_novos(interaction: discord.Interaction):
+        if not await _so_dono_com_busca(interaction):
+            return
+        itens = autocatalogo.itens_salvos()
+        await interaction.response.send_message(formato.cortar(texto_catalogo_auto(itens), 1900), ephemeral=True)
+
+    @grupo_catalogo.command(name="remover", description="Tira um perfume do catálogo automático pra sempre (só o dono)")
+    @app_commands.describe(perfume="Qual perfume")
+    @app_commands.autocomplete(perfume=autocomplete_catalogo_auto)
+    async def catalogo_remover(interaction: discord.Interaction, perfume: str):
+        if not await _so_dono_com_busca(interaction):
+            return
+        removido = autocatalogo.remover(perfume)
+        if not removido:
+            await interaction.response.send_message("Não achei esse no catálogo automático 🔍", ephemeral=True)
+            return
+        interaction.client.descoberta.remover_item(perfume)
+        nome = autocatalogo.item_de_dict(removido).nome_exibicao
+        await interaction.response.send_message(f"🗑️ Tirei **{nome}** do catálogo. Ele não volta mais sozinho.",
+                                                ephemeral=True)
+
+    @grupo_catalogo.command(name="rodar", description="Roda a análise do catálogo automático agora (só o dono)")
+    async def catalogo_rodar(interaction: discord.Interaction):
+        if not await _so_dono_com_busca(interaction):
+            return
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        novos = await interaction.client.rodar_autocatalogo()
+        texto = (f"📚 Entraram {len(novos)} perfume(s) (mandei a lista no canal)." if novos else
+                 "📚 Nada novo agora: nenhum masculino/unissex de marca conhecida visto mais de uma vez na semana.")
+        await interaction.edit_original_response(content=texto)
+
+    tree.add_command(grupo_catalogo)
 
     @tree.command(name="atualizar", description="Baixa a versão nova do bot, testa e reinicia (só o dono)")
     async def atualizar_cmd(interaction: discord.Interaction):
