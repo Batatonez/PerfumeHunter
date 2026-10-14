@@ -97,7 +97,7 @@ def test_comandos_registram_sem_erro():
     registrar_comandos(bot.tree)
     nomes = {c.name for c in bot.tree.get_commands()}
     assert nomes == {"locate", "add", "remove", "lista", "historico", "checar", "teste_alerta", "top", "varrer",
-                     "status", "despausar", "clear", "send", "atualizar", "alerta"}
+                     "status", "despausar", "clear", "send", "atualizar", "alerta", "cargos"}
 
 
 def test_bot_fora_do_servidor_mostra_link_de_convite(caplog):
@@ -121,7 +121,7 @@ def test_bot_fora_do_servidor_mostra_link_de_convite(caplog):
     with pytest.raises(SystemExit):
         asyncio.run(bot.setup_hook())
     assert link_convite(999) in caplog.text
-    assert "client_id=999&scope=bot+applications.commands&permissions=224256" in link_convite(999)
+    assert "client_id=999&scope=bot+applications.commands&permissions=268659712" in link_convite(999)
 
 
 def test_montar_mencao():
@@ -495,3 +495,124 @@ def test_embed_alerta_pessoal():
     e = embed_alerta_usuario({"id": 3, "consulta": "khamrah", "preco_max": 250, "ml": 100}, k, 100, 20)
     assert e["title"] == "🔔 khamrah 100ml chegou no seu preço" and "**20% OFF**" in e["description"]
     assert "Você pediu até R$ 250,00" in e["description"] and e["url"] == "https://ml/k"
+
+
+def _guild_falsa(*nomes):
+    from types import SimpleNamespace
+
+    roles = [SimpleNamespace(id=i + 100, name=n, mention=f"<@&{i + 100}>") for i, n in enumerate(nomes)]
+    criados = []
+
+    async def create_role(name, **kw):
+        criados.append((name, kw))
+        roles.append(SimpleNamespace(id=len(roles) + 100, name=name, mention=f"<@&{len(roles) + 100}>"))
+
+    return SimpleNamespace(roles=roles, create_role=create_role, criados=criados)
+
+
+def test_cargos_marcados_na_promo():
+    from datetime import timedelta
+
+    from scentinel.bot import cargos_da_oferta
+
+    guild = _guild_falsa("✨ Designer", "🕌 Árabe", "🔥 Todas as promos")
+    agora, ultimos = db.agora_utc(), {}
+    promo = oferta_exemplo(origem="descoberta", estilo="arabe")
+    assert [c.name for c in cargos_da_oferta(guild, promo, ultimos, agora)] == ["🔥 Todas as promos", "🕌 Árabe"]
+    # 10 min depois, outra promo árabe: não marca de novo (no máximo 1 vez a cada 30 min)
+    assert cargos_da_oferta(guild, promo, ultimos, agora + timedelta(minutes=10)) == []
+    assert [c.name for c in cargos_da_oferta(guild, promo, ultimos, agora + timedelta(minutes=31))] == [
+        "🔥 Todas as promos", "🕌 Árabe"]
+    # vitrine/sem nível, anúncio do /add e nível baixo não marcam ninguém
+    assert cargos_da_oferta(guild, oferta_exemplo(origem="descoberta", estilo="arabe",
+                                                  avaliacao=Avaliacao(1, 2, "loja", 50, None)), {}, agora) == []
+    assert cargos_da_oferta(guild, oferta_exemplo(origem="manual", estilo="arabe"), {}, agora) == []
+    baixo = Nivel(1, "Cheirinho", "🟢", 10, 0)
+    assert cargos_da_oferta(guild, oferta_exemplo(origem="descoberta", avaliacao=Avaliacao(1, 2, "x", 12, baixo)),
+                            {}, agora) == []
+
+
+def test_botao_de_cargo_da_e_tira():
+    import asyncio
+    from types import SimpleNamespace
+
+    from scentinel.bot import alternar_cargo
+
+    guild = _guild_falsa("💎 Nicho")
+    membro = SimpleNamespace(roles=[])
+    respostas = []
+
+    async def add_roles(cargo, **kw):
+        membro.roles.append(cargo)
+
+    async def remove_roles(cargo, **kw):
+        membro.roles.remove(cargo)
+
+    async def responder(texto, **kw):
+        respostas.append((texto, kw))
+
+    membro.add_roles, membro.remove_roles = add_roles, remove_roles
+    interacao = SimpleNamespace(guild=guild, user=membro, response=SimpleNamespace(send_message=responder))
+    asyncio.run(alternar_cargo(interacao, "💎 Nicho"))
+    assert membro.roles and "Agora te marco" in respostas[-1][0] and respostas[-1][1]["ephemeral"]
+    asyncio.run(alternar_cargo(interacao, "💎 Nicho"))
+    assert membro.roles == [] and "tirei" in respostas[-1][0]
+    asyncio.run(alternar_cargo(interacao, "🕌 Árabe"))
+    assert "sumiu" in respostas[-1][0]
+
+
+def test_comando_cargos_cria_o_que_falta_e_manda_botoes():
+    import asyncio
+    from types import SimpleNamespace
+
+    from scentinel.bot import CARGOS, BotScentinel, BotoesCargos, registrar_comandos
+
+    bot = BotScentinel(config.carregar_config(), config.Segredos("x", 1, 2, 3), db.conectar(":memory:"))
+    registrar_comandos(bot.tree)
+    cmd = bot.tree.get_command("cargos")
+    assert cmd.default_permissions.administrator
+    guild = _guild_falsa("✨ Designer")
+    enviados, edicoes = [], []
+
+    async def defer(**kw):
+        pass
+
+    async def editar(**kw):
+        edicoes.append(kw["content"])
+
+    async def send(**kw):
+        enviados.append(kw)
+
+    interacao = SimpleNamespace(client=bot, guild=guild, permissions=SimpleNamespace(administrator=True),
+                                channel=SimpleNamespace(send=send), edit_original_response=editar,
+                                response=SimpleNamespace(defer=defer))
+    asyncio.run(cmd.callback(interacao))
+    assert [n for n, _ in guild.criados] == [n for n in CARGOS.values() if n != "✨ Designer"]
+    assert all(kw["mentionable"] for _, kw in guild.criados)
+    assert isinstance(enviados[0]["view"], BotoesCargos) and "Criei" in edicoes[-1]
+    ids = {b.custom_id for b in enviados[0]["view"].children}
+    assert ids == {f"scentinel:cargo:{k}" for k in CARGOS}
+
+
+def test_alerta_de_promo_marca_o_cargo():
+    import asyncio
+    from types import SimpleNamespace
+
+    from scentinel.bot import BotScentinel
+
+    bot = BotScentinel(config.carregar_config(), config.Segredos("x", 1, 2, 3), db.conectar(":memory:"))
+    guild = _guild_falsa("🕌 Árabe", "🔥 Todas as promos")
+    enviados = []
+
+    async def send(**kw):
+        enviados.append(kw)
+
+    async def canal():
+        return SimpleNamespace(send=send, guild=guild)
+
+    bot.canal = canal
+    assert asyncio.run(bot.enviar_alerta(oferta_exemplo(origem="descoberta", estilo="arabe"), mencao="dono"))
+    kw = enviados[-1]
+    assert kw["content"] == "<@3> <@&101> <@&100>"
+    assert kw["allowed_mentions"].users is True and [c.name for c in kw["allowed_mentions"].roles] == [
+        "🔥 Todas as promos", "🕌 Árabe"]

@@ -17,7 +17,13 @@ log = logging.getLogger("scentinel")
 
 
 # ver canais + mandar mensagem + gerenciar mensagens (/clear) + embed + ler histórico (/clear) + mencionar @everyone
-PERMISSOES = 1024 | 2048 | 8192 | 16384 | 65536 | 131072
+# + gerenciar cargos (/cargos)
+PERMISSOES = 1024 | 2048 | 8192 | 16384 | 65536 | 131072 | 268435456
+
+# Cargos de estilo: quem tem o cargo é marcado nas promos daquele estilo (o nome do cargo é o rótulo do estilo)
+CARGO_TODAS = "todas"
+CARGOS = {**catalogo.CATEGORIAS, CARGO_TODAS: "🔥 Todas as promos"}
+CARGO_INTERVALO = dt.timedelta(minutes=30)  # o mesmo cargo é marcado no máximo 1 vez a cada 30 min
 
 
 def link_convite(application_id):
@@ -57,6 +63,78 @@ def horarios_vitrine(minutos, fuso_nome):
     return [dt.time(m // 60, m % 60, tzinfo=tz) for m in range(0, 24 * 60, passo)]
 
 
+def cargos_da_oferta(guild, oferta, ultimos, agora, nivel_minimo=2):
+    """Cargos pra marcar numa promo da busca automática: o do estilo + "Todas as promos".
+    `ultimos` (cargo.id -> último ping) é atualizado: cada cargo no máximo 1 vez a cada 30 min."""
+    nivel = oferta.avaliacao.nivel
+    if guild is None or oferta.origem != "descoberta" or not nivel or nivel.nivel < nivel_minimo:
+        return []
+    nomes = [CARGOS[CARGO_TODAS]] + ([CARGOS[oferta.estilo]] if oferta.estilo in CARGOS else [])
+    cargos = []
+    for nome in nomes:
+        cargo = discord.utils.get(guild.roles, name=nome)
+        if cargo and (cargo.id not in ultimos or agora - ultimos[cargo.id] >= CARGO_INTERVALO):
+            ultimos[cargo.id] = agora
+            cargos.append(cargo)
+    return cargos
+
+
+async def alternar_cargo(interaction, nome):
+    """Botão do /cargos: tem o cargo -> tira; não tem -> dá."""
+    cargo = discord.utils.get(interaction.guild.roles, name=nome) if interaction.guild else None
+    if not cargo:
+        await interaction.response.send_message("Esse cargo sumiu 🤔 Um admin pode recriar com `/cargos`.",
+                                                ephemeral=True)
+        return
+    membro = interaction.user
+    try:
+        if any(c.id == cargo.id for c in getattr(membro, "roles", [])):
+            await membro.remove_roles(cargo, reason="botão de cargos do Scentinel")
+            texto = f"🔕 Pronto, tirei o **{nome}**: não te marco mais nessas promos."
+        else:
+            await membro.add_roles(cargo, reason="botão de cargos do Scentinel")
+            texto = f"🔔 Pronto! Agora te marco nas promos de **{nome}**. (Clica de novo pra sair.)"
+    except discord.Forbidden:
+        texto = ("❌ Me falta a permissão **Gerenciar cargos** (ou o meu cargo está abaixo desse no servidor). "
+                 "Avisa um admin.")
+    await interaction.response.send_message(texto, ephemeral=True)
+
+
+class BotaoCargo(discord.ui.Button):
+    def __init__(self, chave, nome):
+        super().__init__(label=nome, style=discord.ButtonStyle.secondary, custom_id=f"scentinel:cargo:{chave}")
+        self.nome = nome
+
+    async def callback(self, interaction: discord.Interaction):
+        await alternar_cargo(interaction, self.nome)
+
+
+class BotoesCargos(discord.ui.View):
+    """Botões fixos (continuam funcionando depois que o bot reinicia: custom_id fixo + timeout=None)."""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+        for chave, nome in CARGOS.items():
+            self.add_item(BotaoCargo(chave, nome))
+
+
+def embed_cargos():
+    return {
+        "title": "🔔 Quer ser marcado nas promos?",
+        "color": formato.COR_ALVO,
+        "description": (
+            "Clica no estilo que você curte e eu te marco quando aparecer promo boa dele "
+            "(no máximo 1 marcação a cada 30 min por estilo). Clica de novo pra sair.\n\n"
+            "✨ **Designer**: Dior, Chanel, Armani, Paco Rabanne...\n"
+            "💎 **Nicho**: Creed, Parfums de Marly, Xerjoff, Initio...\n"
+            "🕌 **Árabe**: Lattafa, Armaf, Afnan, Al Haramain...\n"
+            "🇧🇷 **Nacional**: O Boticário, Natura, Eudora...\n"
+            "🔥 **Todas as promos**: qualquer promo boa, de qualquer estilo\n\n"
+            "Os posts da vitrine (de 15 em 15 min) não marcam ninguém."
+        ),
+    }
+
+
 class BotScentinel(discord.Client):
     def __init__(self, cfg, segredos, con):
         intents = discord.Intents.none()
@@ -72,6 +150,7 @@ class BotScentinel(discord.Client):
         self.segredos = segredos
         self.con = con
         self.reiniciar = False  # /atualizar: sai com erro de propósito pro systemd religar na versão nova
+        self._ping_cargo = {}  # cargo.id -> última vez que foi marcado
         self.trava_atualizar = asyncio.Lock()
         self.tree = app_commands.CommandTree(self)
         self.cacador = Cacador(con, cfg, enviar_alerta=self.enviar_alerta, enviar_aviso=self.enviar_aviso)
@@ -96,6 +175,7 @@ class BotScentinel(discord.Client):
 
     async def setup_hook(self):
         registrar_comandos(self.tree)
+        self.add_view(BotoesCargos())  # os botões do /cargos voltam a funcionar depois de reiniciar
         guild = discord.Object(id=self.segredos.guild_id)
         # sincroniza só no servidor do Davi: aparece na hora (global demora)
         self.tree.copy_global_to(guild=guild)
@@ -155,6 +235,11 @@ class BotScentinel(discord.Client):
                         "Reconvide o bot com: %s", link_convite(self.application_id),
                     )
             conteudo, permitidas = montar_mencao(mencao, self.segredos.dono_id, pode)
+            cargos = cargos_da_oferta(getattr(canal, "guild", None), oferta, self._ping_cargo, db.agora_utc(),
+                                      self.cfg.descoberta.nivel_minimo)
+            if cargos:
+                conteudo = " ".join([conteudo or ""] + [c.mention for c in cargos]).strip()
+                permitidas = permitidas.merge(discord.AllowedMentions(roles=cargos))
             embed = discord.Embed.from_dict(formato.embed_alerta(oferta, self.cfg.fuso))
             await canal.send(content=conteudo, embed=embed, allowed_mentions=permitidas)
             return True
@@ -689,6 +774,31 @@ def registrar_comandos(tree):
         await interaction.response.send_message(
             f"Apagar {alvo} deste canal? As fixadas ficam. **Não tem volta.**",
             view=ConfirmarLimpeza(quantidade), ephemeral=True)
+
+    @tree.command(name="cargos", description="Cria os cargos de estilo e manda os botões pra galera escolher (só admin)")
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.guild_only()
+    async def cargos(interaction: discord.Interaction):
+        if not interaction.permissions.administrator:
+            await interaction.response.send_message("Só admin pode usar isso 🙅", ephemeral=True)
+            return
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        criados = []
+        try:
+            for nome in CARGOS.values():
+                if not discord.utils.get(interaction.guild.roles, name=nome):
+                    await interaction.guild.create_role(name=nome, mentionable=True, reason="/cargos do Scentinel")
+                    criados.append(nome)
+            await interaction.channel.send(embed=discord.Embed.from_dict(embed_cargos()), view=BotoesCargos())
+        except discord.Forbidden:
+            await interaction.edit_original_response(content=(
+                "❌ Me falta a permissão **Gerenciar cargos**. Abre de novo o link de convite pra atualizar: "
+                f"{link_convite(interaction.client.application_id)}\n"
+                "(ou: Configurações do servidor → Cargos → Scentinel → liga Gerenciar cargos)"))
+            return
+        texto = f"✅ Criei: {', '.join(criados)}." if criados else "✅ Os cargos já existiam."
+        await interaction.edit_original_response(
+            content=texto + " Mandei os botões aqui no canal: fixa a mensagem pra galera achar fácil 📌")
 
     @tree.command(name="send", description="Manda agora N ofertas no canal (só admin)")
     @app_commands.describe(
