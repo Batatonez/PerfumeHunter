@@ -126,10 +126,10 @@ O `instalar.sh` faz quatro coisas:
 4. Monte o link de convite trocando `CLIENT_ID` pelo Client ID que você copiou:
 
    ```
-   https://discord.com/oauth2/authorize?client_id=CLIENT_ID&scope=bot+applications.commands&permissions=224256
+   https://discord.com/oauth2/authorize?client_id=CLIENT_ID&scope=bot+applications.commands&permissions=268659712
    ```
 
-   O `224256` dá ao bot só seis permissões: ver canais, mandar mensagem, mandar embed (o card bonito), mencionar @everyone (usada só no 💎 Bug de preço), e gerenciar mensagens + ver histórico (só pro `/clear`). Se o bot já estiver no servidor, abrir o link de novo e autorizar atualiza as permissões.
+   O `268659712` dá ao bot só sete permissões: ver canais, mandar mensagem, mandar embed (o card bonito), mencionar @everyone (usada só no 💎 Bug de preço), gerenciar mensagens + ver histórico (só pro `/clear`) e gerenciar cargos (só pro `/cargos`). Se o bot já estiver no servidor, abrir o link de novo e autorizar atualiza as permissões.
 5. Abra o link, escolha o seu servidor e autorize.
 6. (Opcional) Em **General Information**, coloque a descrição e as tags:
 
@@ -139,7 +139,8 @@ O `instalar.sh` faz quatro coisas:
    Vigio preços no Mercado Livre, Boticário, Natura e lojas de perfume 24h por dia e aviso aqui quando aparece promo de verdade, do 🟢 Cheirinho ao 💎 Bug de preço.
 
    🔎 /locate: acha a maior promo de um perfume
-   📈 /historico: menor, maior e preço médio
+   📈 /historico: gráfico e histórico de preço
+   🔔 /alerta: te marco quando o perfume chegar no seu preço
    📋 /lista: tudo que tô vigiando
    ```
 
@@ -268,13 +269,18 @@ Reinicie com a tampa fechada (`sudo reboot`). Espere uns 2 minutos e veja se o b
 | `/varrer` | dono | força a varredura de ofertas agora (normalmente é de hora em hora); tira a pausa das lojas |
 | `/status` | todos | mostra se cada loja está funcionando ou pausada (até quando e por quê) |
 | `/despausar` | dono | tira a pausa das lojas na hora |
-| `/send numero` | admin | manda agora até N ofertas no canal (até 20; novas primeiro, sem repetir perfume no lote) |
+| `/send numero [estilo] [ate] [desconto]` | admin | manda agora até N ofertas no canal (até 20; novas primeiro, sem repetir perfume no lote). Filtros opcionais: estilo (✨ Designer, 💎 Nicho, 🕌 Árabe, 🇧🇷 Nacional, 🧴 Outras marcas), preço máximo e % OFF mínimo. Sem filtro, vai qualquer uma |
+| `/alerta criar perfume preco [ml]` | todo mundo | alerta de preço só seu: o bot pesquisa a cada ~3 h e te marca no canal quando chegar no preço (de novo só se baixar mais). Até 5 por pessoa |
+| `/alerta lista` · `/alerta remover` | todo mundo | ver e parar os seus alertas |
+| `/cargos` | admin | cria os cargos ✨ Designer, 💎 Nicho, 🕌 Árabe, 🇧🇷 Nacional e 🔥 Todas as promos e manda os botões pra galera entrar/sair (fixa a mensagem) |
+| `/catalogo novos` · `remover` · `rodar` | dono | o que o catálogo automático pôs, tirar um (não volta mais), rodar a análise agora |
+| `/atualizar` | dono | igual ao `scentinel-update`, pelo Discord: baixa, testa e reinicia (sem sudo) |
 | `/clear [quantidade]` | admin | apaga as mensagens do canal (todas ou as últimas N; as fixadas ficam), com confirmação |
 | `/add url nome ml [alvo] [marca] [seletor]` | dono | cadastra um anúncio, **testa o preço na hora** e mostra o que leu |
 | `/remove anuncio` | dono | para de vigiar (tem autocomplete) |
 | `/top` | todo mundo | as melhores promos das últimas 24 h, uma por perfume |
 | `/lista` | todo mundo | tudo que está sendo vigiado, com o último preço |
-| `/historico nome` | todo mundo | mínimo, máximo, mediana de 30 dias e último preço de cada loja |
+| `/historico nome` | todo mundo | **gráfico** do menor preço de cada dia (30 dias) + mínimo, máximo, mediana e último preço de cada loja |
 | `/checar` | dono | força uma rodada agora (pula o que foi checado há menos de 30 min) |
 | `/teste_alerta` | dono | manda um alerta de mentira no canal |
 
@@ -323,7 +329,8 @@ Educação com as lojas (não negociável):
 São dois jeitos, rodando juntos:
 
 1. **Varredura (o principal):** de hora em hora o bot percorre as ofertas de perfume das lojas: no Mercado Livre, os **mais vendidos** das categorias de perfume e vários termos ("perfume masculino", "perfume árabe", "eau de parfum"...), só **loja oficial**; nas lojas VTEX, a lista de perfumes **ordenada por maior desconto**. Posta **qualquer perfume** em promo boa, os maiores descontos primeiro. Perfume que aparece em várias lojas é reconhecido como o mesmo (pelo nome e tamanho) e só o mais barato é postado.
-2. **Catálogo:** o `catalogo.toml` tem ~80 perfumes famosos com preço normal de mercado. Eles são buscados um a um (a cada 6 h por loja) e têm comparação de preço mais precisa.
+2. **Catálogo:** o `catalogo.toml` tem ~140 perfumes famosos (115 masculinos/unissex) com preço normal de mercado. Eles são buscados um a um (a cada 6 h por loja) e têm comparação de preço mais precisa.
+3. **📚 Catálogo automático (todo dia às 20:00):** o bot olha o que a varredura viu na semana e põe no catálogo os perfumes **masculinos/unissex** novos: só os vistos mais de uma vez, de marca que ele conhece (é dela que vem o estilo), com o preço normal = mediana da semana (se esteve em promo a semana toda, ele erra pro lado de não postar). Palavras de outras versões da mesma marca viram "evitar" (o Khamrah não engole o Khamrah Qahwa). No máximo 15 por dia, e ele avisa no canal quais entraram. Fica em `dados/catalogo_auto.json`; o dono tira com `/catalogo remover` (e aí não volta). `catalogo_auto = ""` no `config.toml` desliga.
 
 Uma busca por vez, com pausa educada entre elas.
 
@@ -336,7 +343,9 @@ O que ele faz com o que acha:
 - **Confere se é o perfume certo:** marca, nome, concentração (Sauvage EDT ≠ EDP ≠ Elixir), público (212 VIP masculino ≠ feminino) e tamanho. Anúncio sem ml no título fica de fora (não dá pra comparar preço).
 - **Compara com o preço normal de mercado** do catálogo, com o histórico real de 30 dias e com o "de R$" da loja, e fica sempre com o **menor** dos três (assim promo falsa de "de R$ 999 por R$ 699" não passa).
 - **Posta só o que vale:** a partir do nível 2 (20% abaixo da referência), ou abaixo do "preço bom" do perfume. Se o mesmo perfume e tamanho estiver mais barato em outra loja, posta só o mais barato. No máximo 10 posts por hora.
-- **🏆 Top do dia** às 19h com os 5 melhores (um por perfume). `/top` mostra na hora.
+- **% OFF em todo post:** título e linha do preço mostram quantos % abaixo da referência está (quando tem referência).
+- **🏆 Top do dia** às 19h com os 5 melhores (um por perfume). `/top` mostra na hora. **Domingo** sai o **🏆 Top da semana** no lugar: os maiores % OFF que passaram no canal em 7 dias, dizendo se ainda está naquele preço.
+- **Cargos de estilo:** promo boa (nível 2+) marca o cargo do estilo dela (✨ Designer, 💎 Nicho, 🕌 Árabe, 🇧🇷 Nacional) e o 🔥 Todas as promos, cada cargo no máximo 1 vez a cada 30 min. Os posts da vitrine não marcam ninguém. Perfume fora do catálogo ganha o estilo pela marca.
 - **🛍️ Vitrine:** a cada 15 min, em horário redondo (10:00, 10:15, 10:30...), posta a melhor oferta que o bot conhece (promo primeiro, depois maior desconto, depois perfume do catálogo), tentando não repetir o mesmo perfume por 3 dias. Se acabar o que mostrar, repete o que saiu há mais tempo. Pula a vez se acabou de sair promo. `vitrine_minutos = 0` desliga.
 - Loja que bloquear é pausada (6 h, 12 h, 24 h...) e avisada uma vez no canal. Loja que só dá erro (provavelmente não tem essa busca) é pausada por 24 h, sem avisar.
 
@@ -403,6 +412,8 @@ sudo systemctl restart scentinel             # reiniciar
 
 **`scentinel-update`** baixa o código novo, instala dependência nova se tiver, roda os testes e reinicia o bot (pede a senha do notebook só pra reiniciar). Se os testes falharem, ele volta pro código de antes e não reinicia. Já está na versão mais nova? Ele avisa e não faz nada (`scentinel-update --reiniciar` reinicia mesmo assim).
 
+**`/atualizar`** (no Discord, só o dono) faz o mesmo sem abrir o terminal: se os testes passarem, o bot sai e o systemd liga ele de novo em ~30 s, já na versão nova. A única coisa que ele não faz é mudar o serviço do systemd (precisa de senha): quando isso acontecer ele avisa pra rodar o `scentinel-update --reiniciar`.
+
 Pra criar o comando (uma vez só):
 ```bash
 sudo ln -sf ~/scentinel/atualizar.sh /usr/local/bin/scentinel-update
@@ -437,5 +448,9 @@ Nada aqui depende do Mint:
 | `scentinel/busca.py` | normalização de nome e fuzzy match |
 | `scentinel/db.py` | SQLite (datas em UTC) |
 | `scentinel/formato.py` | R$, datas em São Paulo e embeds |
-| `scentinel/bot.py` | Discord: loop de caça e slash commands |
+| `scentinel/bot.py` | Discord: loops (caça, varredura, vitrine, top, alertas, catálogo automático), slash commands e cargos |
+| `scentinel/descoberta.py` | busca automática: varredura, catálogo, `/locate` ao vivo, vitrine, top e `/alerta` |
+| `scentinel/autocatalogo.py` | catálogo automático das 20:00 (`dados/catalogo_auto.json`) |
+| `scentinel/grafico.py` | gráfico do `/historico` (Pillow) |
+| `scentinel/atualizar.py` | `/atualizar` pelo Discord |
 | `scentinel/lojas/` | nome das lojas e adaptadores específicos (vazio até alguma loja precisar) |

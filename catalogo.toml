@@ -1103,3 +1103,681 @@ busca = ["luna deo parfum natura"]
 evitar = ["absoluta", "rubi", "radiante", "intenso", "nuit", "confiante", "sensual"]
 publico = "fem"
 categoria = "nacional"
+
+# ============================================================
+# MAIS MASCULINOS E UNISSEX (out/2026): mesmas regras de preço lá de cima
+# ============================================================
+
+[[perfumes]]
+nome = "Dior Homme Intense"
+marca = "Dior"
+concentracao = "EDP"
+ml = [50, 100, 150]
+ml_ref = 100
+preco_normal = 850
+preco_bom = 655
+busca = ["dior homme intense"]
+evitar = ["sport", "cologne", "parfum"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Allure Homme Sport"
+marca = "Chanel"
+concentracao = "EDT"
+ml = [50, 100, 150]
+ml_ref = 100
+preco_normal = 800
+preco_bom = 615
+busca = ["allure homme sport chanel"]
+evitar = ["eau extreme", "extreme", "cologne", "superleggera"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Bleu de Chanel"
+marca = "Chanel"
+concentracao = "Parfum"
+ml = [50, 100, 150]
+ml_ref = 100
+preco_normal = 1150
+preco_bom = 885
+busca = ["bleu de chanel parfum"]
+evitar = ["eau de toilette"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Acqua di Giò"
+marca = "Giorgio Armani"
+concentracao = "EDT"
+ml = [30, 50, 100, 200]
+ml_ref = 100
+preco_normal = 520
+preco_bom = 400
+busca = ["acqua di gio eau de toilette armani"]
+evitar = ["profondo", "profumo", "absolu", "parfum", "elixir", "essenza", "femme", "donna"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Code"
+marca = "Giorgio Armani"
+concentracao = "EDT"
+ml = [50, 75, 125, 200]
+ml_ref = 125
+preco_normal = 560
+preco_bom = 430
+busca = ["armani code eau de toilette"]
+evitar = ["profumo", "absolu", "parfum", "colonia", "a list", "elixir", "femme", "ice", "sport", "turquoise"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Code Profumo"
+marca = "Giorgio Armani"
+ml = [60, 75, 110, 125]
+ml_ref = 110
+preco_normal = 700
+preco_bom = 540
+busca = ["armani code profumo"]
+evitar = ["parfum"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Stronger With You"
+marca = "Giorgio Armani"
+concentracao = "EDT"
+ml = [50, 100, 150]
+ml_ref = 100
+preco_normal = 500
+preco_bom = 385
+busca = ["stronger with you armani eau de toilette"]
+evitar = ["intensely", "absolutely", "leather", "tobacco", "parfum", "freeze", "amber", "powerfully", "sandalwood", "only"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "L'Homme"
+marca = "Yves Saint Laurent"
+concentracao = "EDT"
+ml = [60, 100, 200]
+ml_ref = 100
+preco_normal = 560
+preco_bom = 430
+busca = ["l homme yves saint laurent eau de toilette"]
+evitar = ["le parfum", "intense", "sport", "cologne", "libre", "la nuit", "ultime", "electrique"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "La Nuit de L'Homme"
+marca = "Yves Saint Laurent"
+concentracao = "EDT"
+ml = [60, 100, 200]
+ml_ref = 100
+preco_normal = 560
+preco_bom = 430
+busca = ["la nuit de l homme yves saint laurent"]
+evitar = ["electrique", "le parfum", "intense", "frozen", "bleu"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Invictus Victory Elixir"
+marca = "Rabanne"
+concentracao = "Elixir"
+ml = [50, 100, 200]
+ml_ref = 100
+preco_normal = 650
+preco_bom = 500
+busca = ["invictus victory elixir"]
+evitar = ["absolu", "platinum"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Bad Boy Cobalt"
+marca = "Carolina Herrera"
+ml = [50, 100, 150]
+ml_ref = 100
+preco_normal = 620
+preco_bom = 475
+busca = ["bad boy cobalt carolina herrera"]
+evitar = ["elixir", "extreme", "le parfum"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Le Beau Le Parfum"
+marca = "Jean Paul Gaultier"
+ml = [75, 125]
+ml_ref = 125
+preco_normal = 720
+preco_bom = 555
+busca = ["le beau le parfum jean paul gaultier"]
+evitar = ["paradise garden", "elixir", "eau de toilette", "edt"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Scandal Pour Homme"
+marca = "Jean Paul Gaultier"
+concentracao = "EDT"
+ml = [50, 100, 150]
+ml_ref = 100
+preco_normal = 540
+preco_bom = 415
+busca = ["scandal pour homme jean paul gaultier"]
+evitar = ["le parfum", "absolu", "elixir", "pour femme", "intense"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Eros"
+marca = "Versace"
+concentracao = "EDP"
+ml = [50, 100, 200]
+ml_ref = 100
+preco_normal = 560
+preco_bom = 430
+busca = ["versace eros eau de parfum"]
+evitar = ["flame", "energy", "parfum", "pour femme", "najim"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Chrome"
+marca = "Azzaro"
+concentracao = "EDT"
+ml = [30, 50, 100, 200]
+ml_ref = 100
+preco_normal = 330
+preco_bom = 255
+busca = ["azzaro chrome eau de toilette"]
+evitar = ["legend", "sport", "extreme", "aqua", "united", "intense", "parfum", "elixir", "pure"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "The Most Wanted"
+marca = "Azzaro"
+concentracao = "Parfum"
+ml = [50, 100]
+ml_ref = 100
+preco_normal = 700
+preco_bom = 540
+busca = ["azzaro the most wanted parfum"]
+evitar = ["girl", "intense"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Legend"
+marca = "Montblanc"
+concentracao = "EDP"
+ml = [50, 100, 200]
+ml_ref = 100
+preco_normal = 420
+preco_bom = 325
+busca = ["montblanc legend eau de parfum"]
+evitar = ["night", "spirit", "red", "blue", "intense", "black", "elixir"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Explorer Ultra Blue"
+marca = "Montblanc"
+concentracao = "EDP"
+ml = [60, 100]
+ml_ref = 100
+preco_normal = 420
+preco_bom = 325
+busca = ["montblanc explorer ultra blue"]
+evitar = ["platinum", "extreme"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Boss Bottled"
+marca = "Hugo Boss"
+concentracao = "EDP"
+ml = [50, 100, 200]
+ml_ref = 100
+preco_normal = 480
+preco_bom = 370
+busca = ["boss bottled eau de parfum"]
+evitar = ["night", "infinite", "intense", "tonic", "elixir", "united", "marine", "absolute", "beyond", "unlimited", "parfum"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Polo Blue"
+marca = "Ralph Lauren"
+concentracao = "EDT"
+ml = [75, 125, 200]
+ml_ref = 125
+preco_normal = 450
+preco_bom = 345
+busca = ["polo blue ralph lauren eau de toilette"]
+evitar = ["sport", "gold", "parfum", "black", "red", "green"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Pi"
+marca = "Givenchy"
+concentracao = "EDT"
+ml = [50, 100]
+ml_ref = 100
+preco_normal = 380
+preco_bom = 295
+busca = ["givenchy pi eau de toilette"]
+evitar = ["neo", "air", "fraiche", "ultimate"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "L'Homme"
+marca = "Prada"
+concentracao = "EDT"
+ml = [50, 100, 150]
+ml_ref = 100
+preco_normal = 700
+preco_bom = 540
+busca = ["prada l homme eau de toilette"]
+evitar = ["intense", "l eau", "water splash", "absolu", "femme"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Luna Rossa Carbon"
+marca = "Prada"
+concentracao = "EDT"
+ml = [50, 100, 150]
+ml_ref = 100
+preco_normal = 560
+preco_bom = 430
+busca = ["prada luna rossa carbon"]
+evitar = ["elixir", "parfum"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Born in Roma Uomo Intense"
+marca = "Valentino"
+concentracao = "EDP"
+ml = [50, 100]
+ml_ref = 100
+preco_normal = 800
+preco_bom = 615
+busca = ["born in roma uomo intense valentino"]
+evitar = ["coral fantasy", "green stravaganza", "purple melancholia", "donna", "extradose"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Man in Black"
+marca = "Bvlgari"
+concentracao = "EDP"
+ml = [60, 100]
+ml_ref = 100
+preco_normal = 620
+preco_bom = 475
+busca = ["bvlgari man in black eau de parfum"]
+evitar = ["parfum", "essence"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Aqva Pour Homme"
+marca = "Bvlgari"
+concentracao = "EDT"
+ml = [50, 100, 150]
+ml_ref = 100
+preco_normal = 450
+preco_bom = 345
+busca = ["bvlgari aqva pour homme"]
+evitar = ["marine", "atlantiqve", "toniq", "divina", "magnesium"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "CK One"
+marca = "Calvin Klein"
+concentracao = "EDT"
+ml = [100, 200]
+ml_ref = 100
+preco_normal = 220
+preco_bom = 170
+busca = ["ck one calvin klein eau de toilette"]
+evitar = ["shock", "summer", "gold", "platinum", "red", "collector", "reflections", "electric", "everyone"]
+publico = "unissex"
+categoria = "designer"
+
+[[perfumes]]
+nome = "The Golden Secret"
+marca = "Antonio Banderas"
+concentracao = "EDT"
+ml = [50, 100, 200]
+ml_ref = 100
+preco_normal = 140
+preco_bom = 110
+busca = ["the golden secret antonio banderas"]
+evitar = ["seduction", "her"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Blue Seduction"
+marca = "Antonio Banderas"
+concentracao = "EDT"
+ml = [50, 100, 200]
+ml_ref = 100
+preco_normal = 120
+preco_bom = 90
+busca = ["blue seduction antonio banderas masculino"]
+evitar = ["golden", "secret", "wave"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Cool Water"
+marca = "Davidoff"
+concentracao = "EDT"
+ml = [75, 125, 200]
+ml_ref = 125
+preco_normal = 230
+preco_bom = 175
+busca = ["cool water davidoff eau de toilette masculino"]
+evitar = ["woman", "intense", "reborn", "wave", "game", "sea", "ice", "dive", "parfum", "oceanic"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Ferrari Black"
+marca = "Ferrari"
+concentracao = "EDT"
+ml = [75, 125]
+ml_ref = 125
+preco_normal = 140
+preco_bom = 110
+busca = ["ferrari black eau de toilette"]
+evitar = ["signature", "red", "light", "essence", "uomo", "neroli", "line"]
+publico = "masc"
+categoria = "designer"
+
+[[perfumes]]
+nome = "Pegasus"
+marca = "Parfums de Marly"
+concentracao = "EDP"
+ml = [75, 125]
+ml_ref = 125
+preco_normal = 2000
+preco_bom = 1540
+busca = ["pegasus parfums de marly"]
+evitar = ["exclusif"]
+publico = "masc"
+categoria = "nicho"
+
+[[perfumes]]
+nome = "Herod"
+marca = "Parfums de Marly"
+concentracao = "EDP"
+ml = [75, 125]
+ml_ref = 125
+preco_normal = 2000
+preco_bom = 1540
+busca = ["herod parfums de marly"]
+publico = "masc"
+categoria = "nicho"
+
+[[perfumes]]
+nome = "Naxos"
+marca = "Xerjoff"
+concentracao = "EDP"
+ml = [50, 100]
+ml_ref = 100
+preco_normal = 2200
+preco_bom = 1695
+busca = ["xerjoff naxos"]
+publico = "unissex"
+categoria = "nicho"
+
+[[perfumes]]
+nome = "Oud for Greatness"
+marca = "Initio"
+concentracao = "EDP"
+ml = [90]
+ml_ref = 90
+preco_normal = 2400
+preco_bom = 1850
+busca = ["initio oud for greatness"]
+evitar = ["neo"]
+publico = "unissex"
+categoria = "nicho"
+
+[[perfumes]]
+nome = "Arabians Tonka"
+marca = "Montale"
+concentracao = "EDP"
+ml = [100]
+ml_ref = 100
+preco_normal = 800
+preco_bom = 615
+busca = ["montale arabians tonka"]
+publico = "unissex"
+categoria = "nicho"
+
+[[perfumes]]
+nome = "Cedrat Boisé"
+marca = "Mancera"
+concentracao = "EDP"
+ml = [120]
+ml_ref = 120
+preco_normal = 850
+preco_bom = 655
+busca = ["mancera cedrat boise"]
+evitar = ["intense"]
+publico = "unissex"
+categoria = "nicho"
+
+[[perfumes]]
+nome = "Angels' Share"
+marca = "Kilian"
+concentracao = "EDP"
+ml = [50]
+ml_ref = 50
+preco_normal = 2300
+preco_bom = 1770
+busca = ["kilian angels share"]
+evitar = ["paradis", "rocks"]
+publico = "unissex"
+categoria = "nicho"
+
+[[perfumes]]
+nome = "Green Irish Tweed"
+marca = "Creed"
+concentracao = "EDP"
+ml = [50, 100]
+ml_ref = 100
+preco_normal = 2700
+preco_bom = 2080
+busca = ["creed green irish tweed"]
+publico = "masc"
+categoria = "nicho"
+
+[[perfumes]]
+nome = "Reflection Man"
+marca = "Amouage"
+concentracao = "EDP"
+ml = [100]
+ml_ref = 100
+preco_normal = 2000
+preco_bom = 1540
+busca = ["amouage reflection man"]
+evitar = ["45", "woman"]
+publico = "masc"
+categoria = "nicho"
+
+[[perfumes]]
+nome = "Noir Extreme"
+marca = "Tom Ford"
+concentracao = "EDP"
+ml = [50, 100]
+ml_ref = 100
+preco_normal = 1300
+preco_bom = 1000
+busca = ["tom ford noir extreme"]
+evitar = ["parfum"]
+publico = "masc"
+categoria = "nicho"
+
+[[perfumes]]
+nome = "Hayaati"
+marca = "Lattafa"
+concentracao = "EDP"
+ml = [100]
+ml_ref = 100
+preco_normal = 180
+preco_bom = 140
+busca = ["lattafa hayaati"]
+evitar = ["maleky", "gold", "florence", "elixir"]
+publico = "masc"
+categoria = "arabe"
+
+[[perfumes]]
+nome = "Ajwad"
+marca = "Lattafa"
+concentracao = "EDP"
+ml = [60]
+ml_ref = 60
+preco_normal = 230
+preco_bom = 175
+busca = ["lattafa ajwad"]
+evitar = ["pink"]
+publico = "unissex"
+categoria = "arabe"
+
+[[perfumes]]
+nome = "Nebras"
+marca = "Lattafa"
+concentracao = "EDP"
+ml = [100]
+ml_ref = 100
+preco_normal = 240
+preco_bom = 185
+busca = ["lattafa nebras"]
+publico = "unissex"
+categoria = "arabe"
+
+[[perfumes]]
+nome = "Asad Zanzibar"
+marca = "Lattafa"
+concentracao = "EDP"
+ml = [100]
+ml_ref = 100
+preco_normal = 230
+preco_bom = 175
+busca = ["lattafa asad zanzibar"]
+publico = "masc"
+categoria = "arabe"
+
+[[perfumes]]
+nome = "The Kingdom"
+marca = "Lattafa"
+concentracao = "EDP"
+ml = [100]
+ml_ref = 100
+preco_normal = 200
+preco_bom = 155
+busca = ["lattafa the kingdom"]
+evitar = ["woman", "femme"]
+publico = "masc"
+categoria = "arabe"
+
+[[perfumes]]
+nome = "Club de Nuit Iconic"
+marca = "Armaf"
+concentracao = "EDP"
+ml = [105]
+ml_ref = 105
+preco_normal = 320
+preco_bom = 245
+busca = ["armaf club de nuit iconic"]
+publico = "masc"
+categoria = "arabe"
+
+[[perfumes]]
+nome = "Odyssey Mandarin Sky"
+marca = "Armaf"
+concentracao = "EDP"
+ml = [100]
+ml_ref = 100
+preco_normal = 250
+preco_bom = 190
+busca = ["armaf odyssey mandarin sky"]
+evitar = ["elixir"]
+publico = "masc"
+categoria = "arabe"
+
+[[perfumes]]
+nome = "L'Aventure"
+marca = "Al Haramain"
+concentracao = "EDP"
+ml = [100, 200]
+ml_ref = 100
+preco_normal = 230
+preco_bom = 175
+busca = ["al haramain l aventure"]
+evitar = ["femme", "intense", "blanche", "knight", "rose", "gold"]
+publico = "masc"
+categoria = "arabe"
+
+[[perfumes]]
+nome = "Supremacy Not Only Intense"
+marca = "Afnan"
+ml = [100]
+ml_ref = 100
+preco_normal = 300
+preco_bom = 230
+busca = ["afnan supremacy not only intense"]
+publico = "masc"
+categoria = "arabe"
+
+[[perfumes]]
+nome = "Turathi Blue"
+marca = "Afnan"
+concentracao = "EDP"
+ml = [90]
+ml_ref = 90
+preco_normal = 260
+preco_bom = 200
+busca = ["afnan turathi blue"]
+evitar = ["brown", "electric", "femme"]
+publico = "masc"
+categoria = "arabe"
+
+[[perfumes]]
+nome = "Malbec Ultra Bleu"
+marca = "O Boticário"
+ml = [100]
+ml_ref = 100
+preco_normal = 220
+preco_bom = 170
+busca = ["malbec ultra bleu"]
+publico = "masc"
+categoria = "nacional"
+
+[[perfumes]]
+nome = "Arbo"
+marca = "O Boticário"
+ml = [100]
+ml_ref = 100
+preco_normal = 150
+preco_bom = 115
+busca = ["arbo boticario"]
+evitar = ["puro", "forest", "intenso", "ocean", "reserva", "liberte"]
+publico = "masc"
+categoria = "nacional"
