@@ -448,7 +448,7 @@ class FonteMercadoLivre:
 
     def __init__(self, nome="Mercado Livre", so_loja_oficial=True, modo="auto", termos_varredura=None, paginas=1,
                  categorias_varredura=None, max_categorias=4, max_produtos=5, max_produtos_varredura=8,
-                 vendedor_bem_avaliado=True, navegador=True, site_na_varredura=True, termos_site=None):
+                 vendedor_bem_avaliado=True, navegador=False, site_na_varredura=False, termos_site=None):
         self.nome = nome
         self.so_oficial = so_loja_oficial
         self.modo = modo  # "auto" | "api" | "html"
@@ -1017,8 +1017,6 @@ def diagnostico(termo="sauvage dior", obter=None, completo=None):
             tipos = sorted({c.get("type") for c in conteudo if isinstance(c, dict)})
             linhas.append(f"   {len(conteudo)} item(ns), tipos: {', '.join(map(str, tipos)) or '-'}")
     if completo:  # o que o /locate mostraria (a busca de verdade, do jeito que o bot faz)
-        site = FonteMercadoLivre()._buscar_site(termo)
-        linhas.append(f"{'❌' if site.erro else '✅'} {site.detalhe}")
         res = FonteMercadoLivre().buscar_ao_vivo(termo)
         linhas.append(f"{'❌' if res.erro else '✅'} /locate \"{termo}\": {len(res.achados)} oferta(s)"
                       + (f" · {res.erro}" if res.erro else ""))

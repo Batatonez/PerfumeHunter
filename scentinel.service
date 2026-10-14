@@ -15,10 +15,8 @@ Environment=PYTHONUNBUFFERED=1
 ExecStart=__PASTA__/.venv/bin/python -m scentinel
 Restart=on-failure
 RestartSec=30
-# trava de segurança pra RAM (a máquina tem 3 GB): o bot + o Chromium do /locate (um por vez)
-MemoryMax=900M
-# se o Linux matar o Chromium por falta de memória, o bot continua (sem isso o systemd para o serviço)
-OOMPolicy=continue
+# trava de segurança pra RAM (a máquina tem 3 GB e também roda o Minecraft)
+MemoryMax=400M
 
 [Install]
 WantedBy=multi-user.target

@@ -245,9 +245,8 @@ def embed_ao_vivo(res, max_linhas=8):
                 linhas.append(f"• {loja}: {motivo}")
         motivos = " ".join(m or "" for _, m in getattr(res, "detalhes", None) or [])
         if "catálogo do ML" in motivos and not re.search(r"site do ML: \d+ anúncio", motivos):
-            # a busca do site não rodou (ou falhou): só o catálogo foi olhado
-            linhas.append("_A busca no site do ML não rodou agora: só o catálogo foi olhado, e anúncio fora "
-                          "dele a API do ML não mostra._")
+            # só o catálogo foi olhado: explica o limite (anúncio solto o ML não mostra pra bot)
+            linhas.append("_O bot só enxerga o catálogo do ML: anúncio solto, fora dele, o ML não mostra pra bots._")
         return {
             "title": f"🔎 {res.consulta}",
             "color": COR_NEUTRA,

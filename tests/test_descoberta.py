@@ -598,9 +598,9 @@ def test_locate_explica_por_que_nao_achou(amb):
                             ("Loja B", "1 anúncio(s) com outro nome/tamanho")]
     texto = embed_ao_vivo(res)["description"]
     assert "• Loja A: nenhum produto com esse nome no catálogo do ML" in texto
-    assert "só o catálogo foi olhado" in texto  # explica o limite da API do ML (o site não rodou)
+    assert "só enxerga o catálogo do ML" in texto  # explica o limite da API do ML
     res.detalhes.append(("Loja A", "site do ML: 12 anúncio(s)"))
-    assert "só o catálogo" not in embed_ao_vivo(res)["description"]  # o site rodou: não precisa da nota
+    assert "só enxerga o catálogo" not in embed_ao_vivo(res)["description"]  # se o site rodou, não precisa
 
 
 # ============================================================
