@@ -767,3 +767,19 @@ def test_locate_torino21_junto_acha_torino_21_separado(amb):
     assert sorted(a.url for a, _, _ in res.ofertas) == ["https://a/t", "https://a/t50"]
     amb.a.programar("torino 21", achado("Perfume Xerjoff Torino21 Edp 50ml", 900, "Loja A", "https://a/t50"))
     assert [a.url for a, _, _ in rodar(amb.desc.buscar_ao_vivo("torino 21")).ofertas] == ["https://a/t50"]
+
+
+def test_locate_tenta_mesmo_com_pausa_de_limite_e_diz_o_erro(amb):
+    from scentinel.formato import embed_ao_vivo
+
+    # limite de velocidade pausou a loja A: o /locate ainda tenta (é uma pesquisa só)
+    amb.a.varredura = [ResultadoBusca(erro="api: devagar (HTTP 429)", bloqueado=True, pausa_horas=0.5)]
+    amb.b.varredura = [ResultadoBusca(erro="api: o login do ML venceu (HTTP 401)", bloqueado=True)]
+    rodar(amb.desc.varredura())
+    assert amb.desc.pausada(amb.a) and amb.desc.pausada(amb.b)
+    assert not amb.desc.pausada_pro_locate(amb.a) and amb.desc.pausada_pro_locate(amb.b)
+    amb.a.programar("sauvage dior", erro="api: o ML pediu pra ir mais devagar (HTTP 429)", bloqueado=True)
+    res = rodar(amb.desc.buscar_ao_vivo("sauvage", "dior"))
+    assert amb.a.chamadas == ["sauvage dior"] and amb.b.chamadas == []  # B (login) nem tenta
+    texto = embed_ao_vivo(res)["description"]
+    assert "• Loja A: o ML pediu pra ir mais devagar (HTTP 429)" in texto

@@ -1052,3 +1052,21 @@ def test_ml_site_bloqueado_nao_reabre_no_locate(monkeypatch, tmp_path):
     res = fonte._buscar_site("torino 21")  # 6 h sem abrir de novo (nem no /locate nem na varredura)
     assert len(abriu) == 1 and "bloqueou o navegador" in res.detalhe and "tento de novo às" in res.detalhe
     assert fonte._varrer_site("perfume masculino").pulado and len(abriu) == 1
+
+
+def test_ml_chamadas_da_api_respeitam_intervalo_entre_threads(monkeypatch, tmp_path):
+    import threading
+    import time as _t
+
+    _com_login(monkeypatch, tmp_path)
+    monkeypatch.setattr(ml, "INTERVALO_API_S", 0.2)
+    horas = []
+    monkeypatch.setattr(ml, "baixar_json", lambda *a, **k: (horas.append(_t.monotonic()), (None, "HTTP 404", False))[1])
+    fonte = ml.FonteMercadoLivre()
+    ts = [threading.Thread(target=fonte._get, args=("/x", "T")) for _ in range(4)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    horas.sort()
+    assert all(b - a >= 0.19 for a, b in zip(horas, horas[1:]))  # /locate + varredura juntos: uma por vez

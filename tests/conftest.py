@@ -11,6 +11,7 @@ def ml_sem_login(monkeypatch, tmp_path):
 
     monkeypatch.setattr(ml, "ARQ_TOKEN", tmp_path / "ml_token_de_teste.json")
     monkeypatch.setattr(ml, "_respiro", lambda: None)
+    monkeypatch.setattr(ml, "INTERVALO_API_S", 0)
     # a fonte do ML nem abre o Chromium de verdade (o teste do navegador usa o módulo direto, de propósito)
     monkeypatch.setattr(ml, "navegador", SimpleNamespace(
         baixar_html=lambda *a, **k: (None, "navegador desligado no teste", False), disponivel=lambda: False))

@@ -84,6 +84,7 @@ class Descoberta:
         self._fonte_erros = {}  # erros seguidos (loja fora do ar, endpoint que não existe...)
         self._fonte_avisada = {}  # último bloqueio avisado no canal (avisa de novo só se mudar)
         self._fonte_motivo = {}  # por que está pausada (pro /status e pro /locate)
+        self._fonte_pausa_curta = {}  # pausada só por limite de velocidade (o /locate ainda tenta)
         self._fonte_ultimo_ok = {}  # última busca que funcionou
         self._fonte_ultimo_erro = {}  # último erro (mesmo sem pausar)
         self._ultima_varredura = None
@@ -100,6 +101,11 @@ class Descoberta:
     def pausada(self, fonte, agora=None):
         pausa = self._fonte_pausada_ate.get(fonte.id)
         return bool(pausa and pausa > (agora or self.cacador.relogio()))
+
+    def pausada_pro_locate(self, fonte, agora=None):
+        """Pausa por limite de velocidade não impede uma pesquisa pedida por alguém (é uma só); bloqueio de
+        verdade (login, recusa) sim."""
+        return self.pausada(fonte, agora) and not self._fonte_pausa_curta.get(fonte.id)
 
     def estado_fontes(self, agora=None):
         """Pro /status: cada loja, se está pausada (até quando e por quê), última busca boa e último erro."""
@@ -130,6 +136,7 @@ class Descoberta:
             horas = min(base * 2 ** (falhas - 1), teto)
             self._fonte_pausada_ate[fonte.id] = agora + timedelta(hours=horas)
             self._fonte_motivo[fonte.id] = self._fonte_ultimo_erro[fonte.id] = res.erro
+            self._fonte_pausa_curta[fonte.id] = bool(res.pausa_horas)
             # avisa uma vez por tipo de bloqueio (ex.: depois de um 429, um "login venceu" ainda avisa);
             # limite de velocidade (pausa curta) fica só no log
             if self.enviar_aviso and not res.pausa_horas and self._fonte_avisada.get(fonte.id) != res.erro:
@@ -511,7 +518,7 @@ class Descoberta:
         Também guarda o que achar (histórico e /top), sem postar no canal."""
         consulta = " ".join(x for x in (nome, marca) if x).strip()
         resultado = ResultadoAoVivo(consulta)
-        fontes = [f for f in self.fontes if not self.pausada(f)]
+        fontes = [f for f in self.fontes if not self.pausada_pro_locate(f)]
         if not consulta or not fontes:
             return resultado
         respostas = await asyncio.gather(
@@ -539,6 +546,7 @@ class Descoberta:
             ok, _ = await self._tratar_resultado(fonte, res, agora)
             if not ok and not res.achados:
                 resultado.lojas_falha.append(fonte.nome)
+                resultado.detalhes.append((fonte.nome, res.detalhe or (res.erro or "erro").removeprefix("api: ")))
                 continue
             # bloqueou mas o site achou algo: a pausa já foi aplicada, e o que veio ainda aparece
             resultado.lojas_ok.append(fonte.nome)

@@ -381,7 +381,7 @@ def registrar_comandos(tree):
             await interaction.edit_original_response(content=f"⏳ checando {n} loja(s)...")
 
         if bot.descoberta:
-            lojas = [f.nome for f in bot.descoberta.fontes if not bot.descoberta.pausada(f)]
+            lojas = [f.nome for f in bot.descoberta.fontes if not bot.descoberta.pausada_pro_locate(f)]
             if not lojas and bot.descoberta.fontes:  # tudo pausado: diz por quê, em vez de "não achei"
                 await interaction.edit_original_response(
                     content=formato.cortar(texto_pausadas(bot.descoberta.estado_fontes(), bot.cfg.fuso), 1900))

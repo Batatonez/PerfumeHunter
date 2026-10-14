@@ -209,7 +209,7 @@ def achados_do_html(html, so_oficial=True, ja_filtrado=False):
 
 SITE = "MLB"
 CATEGORIA_BELEZA = "MLB1246"  # Beleza e Cuidado Pessoal: a de Perfumes é filha dela
-PAUSA_API_S = (0.6, 1.5)  # respiro entre chamadas seguidas da mesma busca (o ML dá 429 se correr)
+PAUSA_API_S = (0.1, 0.4)  # um pouco de variação; o espaçamento de verdade é o INTERVALO_API_S (global)
 MAX_PAGINAS_OFERTAS = 3  # páginas de vendedores por produto (só se a 1ª não tiver loja oficial)
 MAX_CACHE_PRODUTOS = 3000
 MAX_FALHAS_DE_REDE = 2  # erros de rede seguidos numa tarefa: para (não segura a fila)
@@ -223,6 +223,20 @@ _CATEGORIA_FORA = re.compile(r"\b(kits?|infanti[ls]|amostras?|decants?|miniatura
 
 def _respiro():
     time.sleep(random.uniform(*PAUSA_API_S))
+
+
+INTERVALO_API_S = 1.0  # entre QUALQUER duas chamadas da API, de qualquer parte do bot (o ML dá 429 se correr)
+_vez_da_api = threading.Lock()
+_ultima_chamada = [0.0]
+
+
+def _esperar_vez_da_api():
+    """O /locate e a varredura rodam em threads diferentes: sem isso, as duas juntas passavam do limite do ML."""
+    with _vez_da_api:
+        espera = _ultima_chamada[0] + INTERVALO_API_S - time.monotonic()
+        if espera > 0:
+            time.sleep(espera)
+        _ultima_chamada[0] = time.monotonic()
 
 
 @dataclass
@@ -492,6 +506,7 @@ class FonteMercadoLivre:
         return None, "sem_login"
 
     def _get(self, caminho, token, params=None):
+        _esperar_vez_da_api()
         return baixar_json(f"{API}{caminho}", params=params, headers={"Authorization": f"Bearer {token}"})
 
     @staticmethod
