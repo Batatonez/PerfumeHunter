@@ -8,7 +8,7 @@ from discord import app_commands
 from discord.ext import tasks
 
 from scentinel import busca, catalogo, config, db, formato, promo
-from scentinel.descoberta import TEMPO_MAX_AO_VIVO_S, Descoberta
+from scentinel.descoberta import Descoberta
 from scentinel.fontes import montar_fontes
 from scentinel.caca import Cacador
 
@@ -305,9 +305,7 @@ def registrar_comandos(tree):
                 await interaction.edit_original_response(
                     content=formato.cortar(texto_pausadas(bot.descoberta.estado_fontes(), bot.cfg.fuso), 1900))
                 return
-            await interaction.edit_original_response(
-                content=f"🔎 procurando em {len(lojas)} loja(s)... (leva até uns {TEMPO_MAX_AO_VIVO_S} s)"
-            )
+            await interaction.edit_original_response(content="🔎 procurando...")
             ao_vivo = await bot.descoberta.buscar_ao_vivo(nome, marca)
             if ao_vivo.ofertas:
                 await interaction.edit_original_response(
