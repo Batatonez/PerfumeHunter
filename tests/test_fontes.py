@@ -720,3 +720,26 @@ def test_ml_outro_processo_renovou_o_login(monkeypatch, tmp_path):
 
     monkeypatch.setattr(ml, "_pedir_token", renovou_antes)
     assert ml.token_e_motivo() == ("NOVO", None)
+
+
+def test_ml_produto_fechado_nao_bloqueia_a_loja(monkeypatch, tmp_path):
+    """Bug do "queening": um produto com vendedores fechados (403) pausava o ML inteiro por 6 h."""
+    _com_login(monkeypatch, tmp_path)
+    busca = {"results": [_produto_bruto("MLB1", "Perfume Queening Mind Games EDP 100ml"),
+                         _produto_bruto("MLB2", "Perfume Queening Mind Games EDP 50ml", volume="50 mL")]}
+    monkeypatch.setattr(ml, "baixar_json", _api_falsa({
+        "/products/search": (busca, None, False),
+        "/products/MLB1/items": (None, "bloqueado (HTTP 403)", True),
+        "/products/MLB2/items": (ITENS_P1, None, False),
+    }))
+    res = ml.FonteMercadoLivre().buscar("queening")
+    assert not res.bloqueado and not res.erro
+    assert [a.preco for a in res.achados if a.oficial] == [520.0]
+    # todos fechados: nada achado, mas sem pausar a loja
+    monkeypatch.setattr(ml, "baixar_json", _api_falsa({
+        "/products/search": (busca, None, False),
+        "/products/MLB1/items": (None, "bloqueado (HTTP 403)", True),
+        "/products/MLB2/items": (None, "bloqueado (HTTP 403)", True),
+    }))
+    res = ml.FonteMercadoLivre().buscar("queening")
+    assert not res.bloqueado and not res.erro and res.achados == []

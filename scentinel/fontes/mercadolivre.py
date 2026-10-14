@@ -468,6 +468,11 @@ class FonteMercadoLivre:
             if erro:
                 if "404" in erro:  # "No winners found": ninguém vendendo agora
                     break
+                if "403" in erro:
+                    # o ML esconde os vendedores de ALGUNS produtos: pula só esse (não é a loja toda bloqueada;
+                    # bloqueio de verdade aparece no /products/search)
+                    log.info("ML: vendedores de %s fechados (%s); pulando esse produto", produto_id, erro)
+                    break
                 return ofertas, erro
             dados = _obj(dados)
             resultados = _lista(dados.get("results"))
@@ -653,7 +658,7 @@ class FonteMercadoLivre:
                 _respiro()
             produto, erro = self._produto(pid, token)
             if erro:
-                if "404" in erro:
+                if "404" in erro or "403" in erro:  # produto sumiu ou fechado: só esse
                     continue
                 falhas += 1
                 if _grave(erro) or falhas >= MAX_FALHAS_DE_REDE:

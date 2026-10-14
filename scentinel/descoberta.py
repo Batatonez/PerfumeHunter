@@ -106,9 +106,11 @@ class Descoberta:
         } for f in self.fontes]
 
     def despausar(self):
-        """O dono mandou tentar de novo agora (/varrer)."""
+        """O dono mandou tentar de novo agora (/despausar, /varrer): zera a pausa e a contagem que dobra ela."""
         self._fonte_pausada_ate.clear()
         self._fonte_erros.clear()
+        self._fonte_falhas.clear()
+        self._fonte_motivo.clear()
 
     async def _tratar_resultado(self, fonte, res, agora):
         """Cuida de bloqueio/erro. Devolve (ok, linha_de_log)."""

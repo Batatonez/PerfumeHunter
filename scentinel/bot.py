@@ -494,6 +494,21 @@ def registrar_comandos(tree):
             texto += "\n" + "\n".join(problemas[:8])
         await interaction.edit_original_response(content=formato.cortar(texto, 1900))
 
+    @tree.command(name="despausar", description="Tira a pausa das lojas agora (só o dono)")
+    async def despausar(interaction: discord.Interaction):
+        bot = interaction.client
+        if not bot.eh_dono(interaction):
+            await interaction.response.send_message("Só o dono pode usar isso 🙅", ephemeral=True)
+            return
+        if not bot.descoberta:
+            await interaction.response.send_message("A busca automática está desligada no config.toml.", ephemeral=True)
+            return
+        pausadas = [e["nome"] for e in bot.descoberta.estado_fontes() if e["pausada_ate"]]
+        bot.descoberta.despausar()
+        texto = (f"▶️ Tirei a pausa: {', '.join(pausadas)}. Pode usar o `/locate`." if pausadas
+                 else "Nenhuma loja estava pausada 👍")
+        await interaction.response.send_message(texto, ephemeral=True)
+
     @tree.command(name="status", description="Como estão as lojas: funcionando, pausadas e por quê")
     async def status(interaction: discord.Interaction):
         bot = interaction.client

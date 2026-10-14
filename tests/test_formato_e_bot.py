@@ -82,7 +82,7 @@ def test_comandos_registram_sem_erro():
     registrar_comandos(bot.tree)
     nomes = {c.name for c in bot.tree.get_commands()}
     assert nomes == {"locate", "add", "remove", "lista", "historico", "checar", "teste_alerta", "top", "varrer",
-                     "status"}
+                     "status", "despausar"}
 
 
 def test_bot_fora_do_servidor_mostra_link_de_convite(caplog):
@@ -205,3 +205,28 @@ def test_texto_status():
     ])
     assert "⏸️ **Mercado Livre**: pausada até 14/10 15:00 (o login do ML venceu (HTTP 401))" in texto
     assert "🟢 **Época**: funcionando · última busca boa: 14/10 14:00" in texto and "último erro: HTTP 500" in texto
+
+
+def test_despausar_pelo_discord():
+    import asyncio
+    from datetime import timedelta
+    from types import SimpleNamespace
+
+    from scentinel.bot import BotScentinel, registrar_comandos
+
+    bot = BotScentinel(config.carregar_config(), config.Segredos("x", 1, 2, dono_id=42), db.conectar(":memory:"))
+    registrar_comandos(bot.tree)
+    desc = bot.descoberta
+    ml = desc.fontes[0]
+    desc._fonte_pausada_ate[ml.id] = desc.cacador.relogio() + timedelta(hours=12)
+    desc._fonte_falhas[ml.id] = 2
+    respostas = []
+
+    async def responder(texto, **kw):
+        respostas.append(texto)
+
+    dono = SimpleNamespace(id=42)
+    interacao = SimpleNamespace(client=bot, user=dono, response=SimpleNamespace(send_message=responder))
+    asyncio.run(bot.tree.get_command("despausar").callback(interacao))
+    assert not desc.pausada(ml) and desc._fonte_falhas == {}  # a próxima pausa volta a ser curta
+    assert "Mercado Livre" in respostas[0]
