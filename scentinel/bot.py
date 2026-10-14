@@ -965,7 +965,8 @@ def registrar_comandos(tree):
         res = await bot.descoberta.buscar_ao_vivo(consulta)
         melhor = bot.descoberta.melhor_do_alerta(res, ml)
         ja = melhor[0].preco if melhor and melhor[0].preco <= preco else None  # já tá no preço: avisa aqui mesmo
-        alerta = db.criar_alerta_usuario(bot.con, interaction.user.id, consulta, preco, ml, avisado_preco=ja)
+        alerta = db.criar_alerta_usuario(bot.con, interaction.user.id, consulta, preco, ml, avisado_preco=ja,
+                                         buscado=bool(res.lojas_ok))
         await interaction.edit_original_response(content=formato.cortar(texto_alerta_criado(alerta, res, melhor), 1900))
 
     @grupo_alerta.command(name="lista", description="Mostra os seus alertas de preço")

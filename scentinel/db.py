@@ -469,12 +469,14 @@ def alertas_de_nivel_desde(con, nivel_minimo, desde):
 # /alerta (alerta de preço de cada pessoa)
 # ============================================================
 
-def criar_alerta_usuario(con, usuario_id, consulta, preco_max, ml=None, avisado_preco=None, quando=None):
+def criar_alerta_usuario(con, usuario_id, consulta, preco_max, ml=None, avisado_preco=None, quando=None,
+                         buscado=False):
+    """buscado=True: acabou de pesquisar (na criação), a próxima pesquisa fica pra daqui ~3 h."""
     quando = para_texto(quando or agora_utc())
     cur = con.execute(
         "INSERT INTO alertas_usuario (usuario_id, consulta, preco_max, ml, criado_em, ultima_busca, avisado_preco)"
         " VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (usuario_id, consulta, preco_max, ml, quando, quando if avisado_preco is not None else None, avisado_preco),
+        (usuario_id, consulta, preco_max, ml, quando, quando if buscado else None, avisado_preco),
     )
     con.commit()
     return alerta_usuario(con, cur.lastrowid)

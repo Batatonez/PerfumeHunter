@@ -471,7 +471,9 @@ def test_alerta_pessoal_pelo_discord():
 
     asyncio.run(criar.callback(interacao(7), perfume="khamrah", preco=250.0))
     assert "Alerta #1 criado" in edicoes[-1] and "Já tá nesse preço agora: **R$ 239,90**" in edicoes[-1]
-    assert db.alerta_usuario(bot.con, 1)["avisado_preco"] == 239.9  # já avisou na resposta: não marca de novo
+    criado = db.alerta_usuario(bot.con, 1)
+    assert criado["avisado_preco"] == 239.9  # já avisou na resposta: não marca de novo
+    assert criado["ultima_busca"]  # acabou de pesquisar: a próxima fica pra daqui ~3 h
     asyncio.run(criar.callback(interacao(7), perfume="Khamrah", preco=200.0))
     assert "já tem esse alerta" in respostas[-1]
     for i in range(MAX_ALERTAS_POR_PESSOA - 1):
