@@ -82,7 +82,7 @@ def test_comandos_registram_sem_erro():
     registrar_comandos(bot.tree)
     nomes = {c.name for c in bot.tree.get_commands()}
     assert nomes == {"locate", "add", "remove", "lista", "historico", "checar", "teste_alerta", "top", "varrer",
-                     "status", "despausar", "clear"}
+                     "status", "despausar", "clear", "send"}
 
 
 def test_bot_fora_do_servidor_mostra_link_de_convite(caplog):
@@ -293,3 +293,41 @@ def test_vitrine_liga_com_o_bot():
     assert bot.loop_vitrine.minutes == 15
     assert "a cada 15 min" in texto_vitrine({"minutos": 15, "conhecidas": 3, "ultimo_post": None})
     assert "desligada" in texto_vitrine({"minutos": 0, "conhecidas": 0, "ultimo_post": None})
+
+
+def test_send_so_admin():
+    import asyncio
+    from types import SimpleNamespace
+
+    from scentinel.bot import BotScentinel, registrar_comandos
+
+    bot = BotScentinel(config.carregar_config(), config.Segredos("x", 1, 2, 3), db.conectar(":memory:"))
+    registrar_comandos(bot.tree)
+    cmd = bot.tree.get_command("send")
+    assert cmd.default_permissions.administrator
+    respostas, seguintes, pedidos = [], [], []
+
+    async def responder(texto, **kw):
+        respostas.append(texto)
+
+    async def defer(**kw):
+        pass
+
+    async def seguir(texto, **kw):
+        seguintes.append(texto)
+
+    async def mandar_varias(n, enviar):
+        pedidos.append(n)
+        return 2
+
+    bot.descoberta.mandar_varias = mandar_varias
+
+    def interacao(admin):
+        return SimpleNamespace(client=bot, permissions=SimpleNamespace(administrator=admin),
+                               response=SimpleNamespace(send_message=responder, defer=defer),
+                               followup=SimpleNamespace(send=seguir))
+
+    asyncio.run(cmd.callback(interacao(False), numero=5))
+    assert "Só admin" in respostas[-1] and pedidos == []
+    asyncio.run(cmd.callback(interacao(True), numero=5))
+    assert pedidos == [5] and seguintes[-1].startswith("🛍️ Mandei 2 de 5")

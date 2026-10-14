@@ -579,15 +579,20 @@ class Descoberta:
     # 4) VITRINE: um post a cada X min, mesmo sem promo nova
     # ------------------------------------------------------------
 
-    def escolher_vitrine(self, agora=None):
-        """A melhor oferta conhecida que ainda não foi pro canal nas últimas `vitrine_sem_repetir_horas`
-        (nem o mesmo perfume). Ordem: promo (nível) > maior desconto > perfume do catálogo > menor R$/ml.
-        Se tudo já foi postado, repete o que saiu há mais tempo (no mínimo 12 h atrás)."""
+    def ranking_vitrine(self, agora=None):
+        """Ofertas conhecidas, da melhor pra pior: (novas, repetidas). Ordem: promo (nível) > maior desconto >
+        perfume do catálogo > menor R$/ml. Repetida = foi pro canal nas últimas `vitrine_sem_repetir_horas`
+        (ela ou o mesmo perfume); essas vêm da que saiu há mais tempo pra mais recente.
+        Cada item: (oferta, chave do perfume, último post ou None)."""
         agora = agora or self.cacador.relogio()
         postados = db.ultimos_posts_desde(self.con, agora - timedelta(hours=self.cfg.vitrine_sem_repetir_horas))
         ultimo_do_anuncio = {p["anuncio_id"]: db.de_texto(p["quando"]) for p in postados}
-        perfumes_postados = {p["catalogo_id"] or p["perfume_id"] for p in postados}
-        novos, repetidos = [], []
+        ultimo_do_perfume = {}
+        for p in postados:
+            chave = p["catalogo_id"] or p["perfume_id"]
+            quando = db.de_texto(p["quando"])
+            ultimo_do_perfume[chave] = max(quando, ultimo_do_perfume.get(chave, quando))
+        novas, repetidas = [], []
         for anuncio in db.anuncios_descobertos_recentes(self.con, agora - timedelta(hours=24)):
             item = self.cacador.catalogo.get(anuncio.get("catalogo_id"))
             if not self.no_publico(None, item, titulo=anuncio.get("titulo") or anuncio.get("perfume_nome") or ""):
@@ -599,17 +604,47 @@ class Descoberta:
             pct = av.pct if av.referencia and av.pct else 0
             nota = (0 if av.nivel else 1, -pct, 0 if item else 1, oferta.por_ml or oferta.preco)
             chave = anuncio.get("catalogo_id") or anuncio["perfume_id"]
-            if anuncio["id"] in ultimo_do_anuncio or chave in perfumes_postados:
-                quando = ultimo_do_anuncio.get(anuncio["id"]) or agora - timedelta(hours=12)
-                repetidos.append((quando, nota, oferta))
+            ultimo = ultimo_do_anuncio.get(anuncio["id"]) or ultimo_do_perfume.get(chave)
+            if ultimo:
+                repetidas.append(((ultimo, nota), (oferta, chave, ultimo)))
             else:
-                novos.append((nota, oferta))
-        if novos:
-            return min(novos, key=lambda x: x[0])[1]
-        antigos = [r for r in repetidos if agora - r[0] >= timedelta(hours=12)]
-        if antigos:
-            return min(antigos, key=lambda x: (x[0], x[1]))[2]
+                novas.append((nota, (oferta, chave, None)))
+        return ([x for _, x in sorted(novas, key=lambda t: t[0])],
+                [x for _, x in sorted(repetidas, key=lambda t: t[0])])
+
+    def escolher_vitrine(self, agora=None):
+        """A melhor oferta que ainda não foi pro canal (nem o mesmo perfume). Se tudo já foi, repete a que
+        saiu há mais tempo, desde que faz pelo menos 12 h."""
+        agora = agora or self.cacador.relogio()
+        novas, repetidas = self.ranking_vitrine(agora)
+        if novas:
+            return novas[0][0]
+        for oferta, _, ultimo in repetidas:
+            if agora - ultimo >= timedelta(hours=12):
+                return oferta
         return None
+
+    async def mandar_varias(self, quantidade, enviar, pausa=None):
+        """/send N: posta até N ofertas agora (novas primeiro; acabando, as que já saíram, da mais antiga pra
+        mais nova). Nunca o mesmo perfume duas vezes no mesmo lote. Devolve quantas foram."""
+        agora = self.cacador.relogio()
+        novas, repetidas = self.ranking_vitrine(agora)
+        enviadas, perfumes = 0, set()
+        for oferta, chave, _ in novas + repetidas:
+            if enviadas >= quantidade:
+                break
+            if chave in perfumes:
+                continue
+            if enviadas:
+                await (pausa or asyncio.sleep)(1.5)  # o Discord limita ~5 mensagens a cada 5 s por canal
+            if not await enviar(oferta):
+                break
+            perfumes.add(chave)
+            db.registrar_alerta(self.con, oferta.anuncio_id, "vitrine", None, oferta.preco, self.cacador.relogio())
+            enviadas += 1
+        log.info("🛍️ /send: %d de %d oferta(s) (%d novas, %d já postadas conhecidas)",
+                 enviadas, quantidade, len(novas), len(repetidas))
+        return enviadas
 
     async def postar_vitrine(self, enviar):
         """Posta a oferta da vitrine (enviar(oferta) -> bool). Pula se já saiu post no canal agora há pouco."""

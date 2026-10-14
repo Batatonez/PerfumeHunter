@@ -268,6 +268,7 @@ Reinicie com a tampa fechada (`sudo reboot`). Espere uns 2 minutos e veja se o b
 | `/varrer` | dono | força a varredura de ofertas agora (normalmente é de hora em hora); tira a pausa das lojas |
 | `/status` | todos | mostra se cada loja está funcionando ou pausada (até quando e por quê) |
 | `/despausar` | dono | tira a pausa das lojas na hora |
+| `/send numero` | admin | manda agora até N ofertas no canal (até 20; novas primeiro, sem repetir perfume no lote) |
 | `/clear [quantidade]` | admin | apaga as mensagens do canal (todas ou as últimas N; as fixadas ficam), com confirmação |
 | `/add url nome ml [alvo] [marca] [seletor]` | dono | cadastra um anúncio, **testa o preço na hora** e mostra o que leu |
 | `/remove anuncio` | dono | para de vigiar (tem autocomplete) |

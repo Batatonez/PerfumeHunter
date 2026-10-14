@@ -574,6 +574,31 @@ def registrar_comandos(tree):
             f"Apagar {alvo} deste canal? As fixadas ficam. **Não tem volta.**",
             view=ConfirmarLimpeza(quantidade), ephemeral=True)
 
+    @tree.command(name="send", description="Manda agora N ofertas no canal (só admin)")
+    @app_commands.describe(numero="Quantas ofertas mandar (até 20)")
+    @app_commands.default_permissions(administrator=True)
+    @app_commands.guild_only()
+    async def send(interaction: discord.Interaction, numero: app_commands.Range[int, 1, 20]):
+        bot = interaction.client
+        if not interaction.permissions.administrator:
+            await interaction.response.send_message("Só admin pode usar isso 🙅", ephemeral=True)
+            return
+        if not bot.descoberta:
+            await interaction.response.send_message("A busca automática está desligada no config.toml.", ephemeral=True)
+            return
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        enviadas = await bot.descoberta.mandar_varias(numero, bot.enviar_vitrine)
+        if enviadas == numero:
+            texto = f"🛍️ Mandei {enviadas} oferta(s) no canal."
+        elif enviadas:
+            texto = (f"🛍️ Mandei {enviadas} de {numero}: é o que eu conheço agora. "
+                     "A varredura de hora em hora vai achando mais.")
+        else:
+            resumo = bot.descoberta.resumo_vitrine()
+            texto = (f"😿 Não tenho oferta pra mandar agora ({resumo['conhecidas']} conhecida(s) nas últimas 24 h). "
+                     "Usa o `/status` pra ver se o Mercado Livre está funcionando.")
+        await interaction.followup.send(texto, ephemeral=True)
+
     @tree.command(name="despausar", description="Tira a pausa das lojas agora (só o dono)")
     async def despausar(interaction: discord.Interaction):
         bot = interaction.client

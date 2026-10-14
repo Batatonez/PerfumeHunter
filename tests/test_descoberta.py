@@ -683,3 +683,46 @@ def test_vitrine_registra_post_sem_nivel(amb):
     assert alerta["tipo"] == "vitrine" and alerta["nivel"] is None  # não conta no limite de @everyone
     resumo = amb.desc.resumo_vitrine()
     assert resumo["minutos"] == 15 and resumo["conhecidas"] == 1 and resumo["ultimo_post"] == amb.relogio.agora
+
+
+def test_send_manda_varias_novas_primeiro_sem_repetir_perfume_no_lote(amb):
+    amb.cfg.descoberta.max_alertas_por_hora = 0
+    _vitrine_com(
+        amb,
+        achado("Perfume Lumina Bravo Masculino EDP 100ml", 300, "Loja A", "https://a/bravo"),
+        achado("Perfume Lumina Forte Masculino EDP 100ml", 250, "Loja A", "https://a/forte", preco_de=300),
+        achado("Sauvage Dior Eau de Parfum 100ml", 840, "Loja A", "https://a/sauvage"),
+        achado("Sauvage Dior Eau de Parfum 100ml", 845, "Loja A", "https://a/sauvage2"),  # mesmo perfume
+    )
+    amb.cfg.descoberta.max_alertas_por_hora = 10
+    postados, pausas = [], []
+
+    async def enviar(oferta):
+        postados.append(oferta.url)
+        return True
+
+    async def pausa(s):
+        pausas.append(s)
+
+    assert rodar(amb.desc.mandar_varias(2, enviar, pausa)) == 2
+    assert postados == ["https://a/forte", "https://a/sauvage"] and pausas == [1.5]
+    # pediu mais do que tem de novo: manda o que falta e depois repete as que já saíram (mais antiga primeiro)
+    postados.clear()
+    amb.relogio.agora += timedelta(minutes=1)
+    assert rodar(amb.desc.mandar_varias(10, enviar, pausa)) == 3
+    assert postados == ["https://a/bravo", "https://a/forte", "https://a/sauvage"]
+
+
+def test_send_para_se_o_discord_falhar(amb):
+    _vitrine_com(amb, achado("Perfume Lumina Bravo Masculino EDP 100ml", 300, "Loja A", "https://a/bravo"),
+                 achado("Perfume Lumina Forte Masculino EDP 100ml", 250, "Loja A", "https://a/forte"))
+
+    async def falha(oferta):
+        return False
+
+    async def pausa(s):
+        pass
+
+    assert rodar(amb.desc.mandar_varias(5, falha, pausa)) == 0
+    novas, repetidas = amb.desc.ranking_vitrine()
+    assert len(novas) == 2 and repetidas == []  # o que não saiu não conta como postado
