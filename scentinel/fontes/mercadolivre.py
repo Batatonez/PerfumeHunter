@@ -12,21 +12,23 @@ Perfume falsificado é comum no ML: por padrão só entra anúncio de LOJA OFICI
 
 import json
 import logging
-from collections import Counter
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FuturesTimeout
 import os
 import random
 import re
 import threading
 import time
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlparse
 
 from bs4 import BeautifulSoup
 
 from scentinel import catalogo, coleta, navegador
+from scentinel.busca import separar_numeros
 from scentinel.coleta import texto_para_preco
 from scentinel.fontes import Achado, ResultadoBusca, baixar_json, registrar
 
@@ -620,7 +622,7 @@ class FonteMercadoLivre:
 
     def _buscar_api(self, termo, token, offset=0, so_publico=False):
         # a busca do catálogo não separa "torino21": vira "torino 21" (o site do ML separa sozinho)
-        termo = re.sub(r"(?<=[a-zA-Z])(?=\d)|(?<=\d)(?=[a-zA-Z])", " ", termo)
+        termo = separar_numeros(termo)
         params = {"status": "active", "site_id": SITE, "q": termo}
         if offset:
             params["offset"] = offset
@@ -637,7 +639,9 @@ class FonteMercadoLivre:
             if catalogo.e_lixo(produto.nome):
                 situacao["lixo"] += 1
                 continue
-            if not catalogo.e_perfume(produto.nome):  # o catálogo do ML mistura tudo (ex.: Funko "God of War")
+            # o catálogo mistura tudo (ex.: Funko "God of War"). Perfume sem a palavra "perfume" no nome ainda
+            # tem volume (atributo do ML ou "100ml" no nome); o /locate filtra bebida e afins depois
+            if not (catalogo.e_perfume(produto.nome) or produto.ml or catalogo.extrair_ml(produto.nome)):
                 situacao["nao_perfume"] += 1
                 continue
             self._guardar(produto)
@@ -785,11 +789,16 @@ class FonteMercadoLivre:
     # ---------------- site do ML pelo navegador (só no /locate) ----------------
 
     def _buscar_site(self, termo):
+        if time.time() < self._sem_site_ate:  # o ML pediu verificação há pouco: nem abre (não insiste)
+            volta = datetime.fromtimestamp(self._sem_site_ate).strftime("%H:%M")
+            return ResultadoBusca(detalhe=f"site do ML: bloqueou o navegador (verificação); tento de novo às {volta}")
         slug = re.sub(r"[^a-z0-9]+", "-", catalogo.texto_titulo(termo)).strip("-")
-        html, erro, _ = navegador.baixar_html(f"https://lista.mercadolivre.com.br/{slug}",
-                                              esperar="div.poly-card, li.ui-search-layout__item",
-                                              tempo_s=TEMPO_SITE_LOCATE_S, espera_vez_s=5)
+        html, erro, bloqueado = navegador.baixar_html(f"https://lista.mercadolivre.com.br/{slug}",
+                                                      esperar="div.poly-card, li.ui-search-layout__item",
+                                                      tempo_s=TEMPO_SITE_LOCATE_S, espera_vez_s=5)
         if erro:
+            if bloqueado:  # vale pro /locate e pra varredura: 6 h sem abrir o site
+                self._sem_site_ate = time.time() + 6 * 3600
             return ResultadoBusca(erro=f"site: {erro}", detalhe=f"site do ML: {erro}")
         achados = achados_do_html(html, so_oficial=False)[:MAX_ANUNCIOS_SITE]
         if not achados:  # diz que página veio (ajuda a saber se o layout mudou ou se era outra coisa)

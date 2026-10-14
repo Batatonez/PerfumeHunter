@@ -492,7 +492,7 @@ class Descoberta:
     # ------------------------------------------------------------
 
     def _casa_consulta(self, achado, palavras, marca_norm):
-        texto = busca.normalizar(f"{achado.titulo} {achado.marca or ''}")
+        texto = busca.normalizar(busca.separar_numeros(f"{achado.titulo} {achado.marca or ''}"))
         tokens = texto.split()
         if catalogo.e_lixo(achado.titulo):
             return False  # kit, decant, amostra...
@@ -523,7 +523,9 @@ class Descoberta:
         agora = self.cacador.relogio()
 
         conc = busca.detectar_concentracao(consulta)
-        palavras = [p for p in busca.normalizar(nome).split() if p not in catalogo._palavras_conc()]
+        # "torino21" e "Torino 21" são o mesmo: separa letra de número dos dois lados
+        palavras = [p for p in busca.normalizar(busca.separar_numeros(nome)).split()
+                    if p not in catalogo._palavras_conc()]
         marca_norm = busca.normalizar(marca) if marca else None
         ofertas = []
         for fonte, res in zip(fontes, respostas):

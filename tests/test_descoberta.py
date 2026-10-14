@@ -757,3 +757,13 @@ def test_locate_mostra_o_que_veio_mesmo_com_bloqueio(amb):
         erro="api: devagar (HTTP 429)", bloqueado=True, pausa_horas=0.5)]
     res = rodar(amb.desc.buscar_ao_vivo("queening"))
     assert [a.url for a, _, _ in res.ofertas] == ["https://a/q"] and amb.desc.pausada(amb.a)
+
+
+def test_locate_torino21_junto_acha_torino_21_separado(amb):
+    """No print: o catálogo achou o Torino 21 com vendedor, mas "torino21" não batia com "Torino 21"."""
+    amb.a.programar("torino21", achado("Perfume Xerjoff Torino 21 Eau De Parfum 100ml", 1264, "Loja A", "https://a/t"),
+                    achado("Perfume Xerjoff Torino21 Edp 50ml", 900, "Loja A", "https://a/t50"))
+    res = rodar(amb.desc.buscar_ao_vivo("torino21"))
+    assert sorted(a.url for a, _, _ in res.ofertas) == ["https://a/t", "https://a/t50"]
+    amb.a.programar("torino 21", achado("Perfume Xerjoff Torino21 Edp 50ml", 900, "Loja A", "https://a/t50"))
+    assert [a.url for a, _, _ in rodar(amb.desc.buscar_ao_vivo("torino 21")).ofertas] == ["https://a/t50"]

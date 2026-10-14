@@ -1024,3 +1024,31 @@ def test_ml_site_sem_anuncio_diz_que_pagina_veio(monkeypatch, tmp_path):
                                            None, False))
     res = ml.FonteMercadoLivre()._buscar_site("queening")
     assert res.achados == [] and res.detalhe == 'site do ML: nenhum anúncio na página ("Mercado Livre - Algo novo")'
+
+
+def test_ml_catalogo_aceita_perfume_sem_a_palavra_perfume(monkeypatch, tmp_path):
+    _com_login(monkeypatch, tmp_path)
+    chamadas = []
+    busca = {"results": [
+        {"id": "MLB1", "name": "Xerjoff Torino 21 100 Ml", "domain_id": "MLB-OUTRA_COISA",
+         "attributes": [{"id": "UNIT_VOLUME", "value_name": "100 mL"}]},  # sem "perfume", mas tem volume
+        {"id": "MLB7", "name": "God Of War - Fire Troll # 271 - Pop Funko", "domain_id": "MLB-COLLECTIBLE_FIGURES"},
+    ]}
+    monkeypatch.setattr(ml, "baixar_json", _api_falsa({
+        "/products/search": (busca, None, False),
+        "/products/MLB1/items": ({"results": [ITENS_P1["results"][1]]}, None, False),
+    }, chamadas))
+    res = ml.FonteMercadoLivre().buscar("torino 21")
+    assert [a.url for a in res.achados] == ["https://www.mercadolivre.com.br/p/MLB1"]
+    assert "/products/MLB7/items" not in [c[0] for c in chamadas]
+
+
+def test_ml_site_bloqueado_nao_reabre_no_locate(monkeypatch, tmp_path):
+    abriu = []
+    monkeypatch.setattr(ml.navegador, "baixar_html",
+                        lambda url, **kw: (abriu.append(url), (None, "o site pediu verificação", True))[1])
+    fonte = ml.FonteMercadoLivre()
+    assert "verificação" in fonte._buscar_site("queening").detalhe
+    res = fonte._buscar_site("torino 21")  # 6 h sem abrir de novo (nem no /locate nem na varredura)
+    assert len(abriu) == 1 and "bloqueou o navegador" in res.detalhe and "tento de novo às" in res.detalhe
+    assert fonte._varrer_site("perfume masculino").pulado and len(abriu) == 1

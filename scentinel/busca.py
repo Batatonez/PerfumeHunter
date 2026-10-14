@@ -31,6 +31,11 @@ def sem_acento(texto):
     return "".join(c for c in nfkd if not unicodedata.combining(c))
 
 
+def separar_numeros(texto):
+    """'torino21' -> 'torino 21', '100ml' -> '100 ml': o mesmo jeito de escrever dos dois lados da comparação."""
+    return re.sub(r"(?<=[^\W\d_])(?=\d)|(?<=\d)(?=[^\W\d_])", " ", str(texto or ""))
+
+
 def normalizar(texto):
     """'Bleu de Chanel Eau de Parfum 100ml' -> 'bleu chanel edp'."""
     texto = sem_acento(str(texto or "")).lower()
