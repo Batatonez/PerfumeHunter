@@ -252,12 +252,12 @@ def _porque_nao_achou(res):
                 "Confere a escrita ou tenta com a marca (ex.: `/locate nome:sauvage marca:dior`).")
     if "sem ninguém vendendo" in motivos or "escondidos" in motivos:
         if "com vendedor" not in motivos:
-            return ("😿 Tá no catálogo do ML, mas ninguém tá vendendo agora",
+            return ("📭 Tá no catálogo do ML, mas ninguém tá vendendo agora",
                     "Pode voltar a qualquer hora. Dá uma olhada nos anúncios avulsos no link abaixo.")
     if "kit/decant" in motivos and "com vendedor" not in motivos:
         return ("🧪 Só achei kit, decant ou amostra",
                 "O bot mostra só o frasco inteiro. Os outros anúncios estão no link abaixo.")
-    return ("😿 Não achei esse perfume no catálogo do Mercado Livre",
+    return ("🐈‍⬛ Não achei esse perfume no catálogo do Mercado Livre",
             "Ele deve estar só em anúncios avulsos, que o ML não mostra pra bots.")
 
 

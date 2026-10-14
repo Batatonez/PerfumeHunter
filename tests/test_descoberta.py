@@ -598,7 +598,7 @@ def test_locate_explica_por_que_nao_achou(amb):
                             ("Loja B", "1 anúncio(s) com outro nome/tamanho")]
     e = embed_ao_vivo(res)
     # manchete em português simples; o técnico fica pequeno no rodapé
-    assert e["description"].startswith("**😿 Não achei esse perfume no catálogo do Mercado Livre**")
+    assert e["description"].startswith("**🐈‍⬛ Não achei esse perfume no catálogo do Mercado Livre**")
     assert "anúncios avulsos" in e["description"]
     assert "Loja A: nenhum produto com esse nome no catálogo do ML" in e["footer"]["text"]
     # só anúncio com outro nome: sugere conferir a escrita
