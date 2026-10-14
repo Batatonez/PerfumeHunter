@@ -97,7 +97,7 @@ def test_comandos_registram_sem_erro():
     registrar_comandos(bot.tree)
     nomes = {c.name for c in bot.tree.get_commands()}
     assert nomes == {"locate", "add", "remove", "lista", "historico", "checar", "teste_alerta", "top", "varrer",
-                     "status", "despausar", "clear", "send"}
+                     "status", "despausar", "clear", "send", "atualizar"}
 
 
 def test_bot_fora_do_servidor_mostra_link_de_convite(caplog):

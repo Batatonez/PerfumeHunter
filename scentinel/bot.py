@@ -8,7 +8,7 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 
-from scentinel import busca, catalogo, config, db, formato, navegador, promo
+from scentinel import atualizar, busca, catalogo, config, db, formato, navegador, promo
 from scentinel.descoberta import Descoberta
 from scentinel.fontes import montar_fontes
 from scentinel.caca import Cacador
@@ -71,6 +71,8 @@ class BotScentinel(discord.Client):
         self.cfg = cfg
         self.segredos = segredos
         self.con = con
+        self.reiniciar = False  # /atualizar: sai com erro de propósito pro systemd religar na versão nova
+        self.trava_atualizar = asyncio.Lock()
         self.tree = app_commands.CommandTree(self)
         self.cacador = Cacador(con, cfg, enviar_alerta=self.enviar_alerta, enviar_aviso=self.enviar_aviso)
         self.loop_caca.change_interval(minutes=cfg.tick_minutos)
@@ -668,6 +670,28 @@ def registrar_comandos(tree):
         texto += "\n" + texto_vitrine(bot.descoberta.resumo_vitrine(), bot.cfg.fuso)
         await interaction.response.send_message(formato.cortar(texto, 1900), ephemeral=True)
 
+    @tree.command(name="atualizar", description="Baixa a versão nova do bot, testa e reinicia (só o dono)")
+    async def atualizar_cmd(interaction: discord.Interaction):
+        bot = interaction.client
+        if not bot.eh_dono(interaction):
+            await interaction.response.send_message("Só o dono pode usar isso 🙅", ephemeral=True)
+            return
+        if bot.trava_atualizar.locked():
+            await interaction.response.send_message("⏳ Já estou atualizando, espera.", ephemeral=True)
+            return
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        async with bot.trava_atualizar:
+            await interaction.edit_original_response(content="🔄 Baixando e testando a versão nova (leva ~1 min)...")
+            res = await asyncio.to_thread(atualizar.atualizar)
+            texto = res.texto
+            if res.reiniciar:
+                texto += "\n🔄 Reiniciando... volto em ~1 min."
+            await interaction.edit_original_response(content=formato.cortar(texto, 1900))
+            if res.reiniciar:
+                log.info("🔄 /atualizar: reiniciando pra versão nova")
+                bot.reiniciar = True
+                await bot.close()
+
     @tree.command(name="checar", description="Força uma rodada de checagem agora (só o dono)")
     async def checar(interaction: discord.Interaction):
         bot = interaction.client
@@ -729,3 +753,6 @@ def rodar():
     con = db.conectar(config.ARQ_DB)
     bot = BotScentinel(cfg, segredos, con)
     bot.run(segredos.token, log_handler=None)
+    if bot.reiniciar:
+        # saída com erro de propósito: o systemd (Restart=on-failure) liga de novo, já com o código novo
+        raise SystemExit(atualizar.SAIDA_PRA_REINICIAR)
