@@ -27,7 +27,7 @@ ERROS_PRA_PAUSAR = 3  # erros seguidos numa loja -> pausa 24 h (ela provavelment
 RELER_MESMO_PRECO_APOS = timedelta(hours=6)  # preço igual: só registra de novo depois disso
 NAO_REPOSTAR_POR = timedelta(days=7)  # mesmo anúncio a preço igual ou maior que o já postado: não reposta
 PRECO_SUSPEITO = 0.35  # perfume do catálogo a menos de 35% do normal: quase certo que não é o produto
-TEMPO_MAX_AO_VIVO_S = 40  # /locate: loja que não respondeu nisso fica de fora da resposta
+TEMPO_MAX_AO_VIVO_S = 60  # /locate: loja que não respondeu nisso fica de fora da resposta
 PAUSA_LIMITE_MAX_HORAS = 2  # pausa por limite de velocidade (429) nunca passa disso
 
 
@@ -487,8 +487,10 @@ class Descoberta:
     def _casa_consulta(self, achado, palavras, marca_norm):
         texto = busca.normalizar(f"{achado.titulo} {achado.marca or ''}")
         tokens = texto.split()
-        if catalogo.e_lixo(achado.titulo) or not catalogo.e_perfume(achado.titulo):
-            return False  # kit/decant ou nem é perfume (ex.: "God of Fire" achava um Funko)
+        if catalogo.e_lixo(achado.titulo):
+            return False  # kit, decant, amostra...
+        if not (catalogo.e_perfume(achado.titulo) or catalogo.extrair_ml(achado.titulo)):
+            return False  # nem é perfume (ex.: "God of Fire" achava um Funko); anúncio com ml no título vale
         if marca_norm and not catalogo._marca_presente(marca_norm, tokens, achado.marca):
             return False
         return all(catalogo._tem_palavra(p, tokens) for p in palavras)
@@ -502,7 +504,8 @@ class Descoberta:
         if not consulta or not fontes:
             return resultado
         respostas = await asyncio.gather(
-            *(asyncio.wait_for(asyncio.to_thread(f.buscar, consulta), TEMPO_MAX_AO_VIVO_S) for f in fontes),
+            *(asyncio.wait_for(asyncio.to_thread(getattr(f, "buscar_ao_vivo", f.buscar), consulta),
+                               TEMPO_MAX_AO_VIVO_S) for f in fontes),
             return_exceptions=True,
         )
         self.cacador._ultimo_request = time.monotonic()

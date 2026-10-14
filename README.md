@@ -356,6 +356,8 @@ A busca do ML só funciona com um app (grátis) logado; sem isso ele pede captch
 
 Desde 2025 o ML fechou a busca de anúncios da API (`/sites/MLB/search` dá 403 pra quase todo app). Por isso o bot usa o **catálogo** do ML: acha a página do produto (`/products/search`), vê todos os vendedores dele (`/products/{id}/items`) e fica com a **loja oficial mais barata**. O link do post é a página do produto no ML.
 
+O catálogo não tem tudo: muito anúncio (ex.: perfume de nicho importado) fica fora dele. Por isso o **`/locate`** também pesquisa no **site** do ML com um Chromium escondido no notebook (Playwright), igual a uma pessoa abrindo a busca, e junta com o catálogo. Um navegador por vez, sem baixar imagem; se o site pedir verificação, ele desiste (não força). O Chromium (~100 MB) é baixado sozinho quando o bot liga; se faltar biblioteca do sistema, o próprio `/locate` diz o comando. `navegador = false` no `config.toml` desliga.
+
 1. Entre em <https://developers.mercadolivre.com.br/devcenter> com sua conta do ML e clique em **Criar uma aplicação**.
 2. Preencha: nome `Scentinel`, finalidade **Pessoal**, e em **URIs de redirect** coloque `https://www.google.com/` (com a barra no final). Permissões: **Publicação e sincronização = só leitura**, o resto sem acesso; tópicos de notificação todos desmarcados. Em **fluxos de autenticação**, marque **Authorization Code** e **Refresh Token** (sem o Refresh Token o acesso vence em ~6 h e não renova); **PKCE desmarcado**. Salve.
 3. Copie o **App ID** e a **Secret Key** que aparecem e coloque no `.env`:

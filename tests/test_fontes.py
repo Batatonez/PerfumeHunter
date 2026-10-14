@@ -786,3 +786,86 @@ def test_ml_so_perfume_no_catalogo(monkeypatch, tmp_path):
     assert {a.url for a in res.achados if a.oficial} == {"https://www.mercadolivre.com.br/p/MLB1",
                                                          "https://www.mercadolivre.com.br/p/MLB2"}
     assert "1 que não é perfume" in res.detalhe
+
+
+# ============================================================
+# /locate no ML: catálogo (API) + site (navegador)
+# ============================================================
+
+HTML_SITE = """
+<ol>
+ <li class="ui-search-layout__item"><div class="poly-card">
+  <a class="poly-component__title" href="https://produto.mercadolivre.com.br/MLB-5550001-queening-mind-games-_JM?x=1">Queening Mind Games Extrait De Parfum 100ml Original</a>
+  <div class="poly-price__current"><span class="andes-money-amount"><span class="andes-money-amount__fraction">1.890</span></span></div>
+ </div></li>
+ <li class="ui-search-layout__item"><div class="poly-card">
+  <a class="poly-component__title" href="https://www.mercadolivre.com.br/queening/p/MLB1?pdp_filters=x">Perfume Queening Mind Games Extrait 100ml</a>
+  <div class="poly-price__current"><span class="andes-money-amount"><span class="andes-money-amount__fraction">1.700</span></span></div>
+ </div></li>
+</ol>
+"""
+
+
+def test_ml_locate_junta_catalogo_e_site(monkeypatch, tmp_path):
+    _com_login(monkeypatch, tmp_path)
+    monkeypatch.setattr(ml, "baixar_json", _api_falsa({
+        "/products/search": ({"results": [_produto_bruto("MLB1", "Perfume Queening Mind Games Extrait 100ml")]},
+                             None, False),
+        "/products/MLB1/items": ({"results": [ITENS_P1["results"][1]]}, None, False),  # oficial 520
+    }))
+    urls = []
+    monkeypatch.setattr(ml.navegador, "baixar_html",
+                        lambda url, esperar=None: (urls.append(url), (HTML_SITE.encode(), None, False))[1])
+    res = ml.FonteMercadoLivre().buscar_ao_vivo("Queening Mind Games")
+    assert urls == ["https://lista.mercadolivre.com.br/queening-mind-games"]
+    # o produto do catálogo vem da API (sabe que é loja oficial); o do site com o mesmo /p/MLB1 não repete
+    assert [(a.url, a.preco, a.oficial) for a in res.achados] == [
+        ("https://www.mercadolivre.com.br/p/MLB1", 520.0, True),
+        ("https://produto.mercadolivre.com.br/MLB-5550001-queening-mind-games-_JM", 1890.0, False),
+    ]
+    assert "catálogo do ML: 1 produto(s)" in res.detalhe and "site do ML: 2 anúncio(s)" in res.detalhe
+
+
+def test_ml_locate_site_fora_ou_api_fora(monkeypatch, tmp_path):
+    _com_login(monkeypatch, tmp_path)
+    # site bloqueou, API achou: mostra a API e conta o porquê do site
+    monkeypatch.setattr(ml, "baixar_json", _api_falsa({
+        "/products/search": ({"results": [_produto_bruto("MLB1", "Perfume Sauvage Dior EDP 100ml")]}, None, False),
+        "/products/MLB1/items": ({"results": [ITENS_P1["results"][1]]}, None, False),
+    }))
+    monkeypatch.setattr(ml.navegador, "baixar_html",
+                        lambda url, esperar=None: (None, "o site pediu verificação (não forcei)", True))
+    res = ml.FonteMercadoLivre().buscar_ao_vivo("sauvage")
+    assert [a.preco for a in res.achados] == [520.0] and not res.erro and not res.bloqueado
+    assert "site do ML: o site pediu verificação" in res.detalhe
+    # API recusou (429) mas o site achou: mostra o site sem pausar o ML
+    monkeypatch.setattr(ml, "baixar_json", _api_falsa({"/products/search": (None, "bloqueado (HTTP 429)", True)}))
+    monkeypatch.setattr(ml.navegador, "baixar_html", lambda url, esperar=None: (HTML_SITE.encode(), None, False))
+    res = ml.FonteMercadoLivre().buscar_ao_vivo("queening")
+    assert len(res.achados) == 2 and not res.bloqueado and not res.erro
+    # os dois sem nada: o bloqueio da API vale (pra pausar como sempre)
+    monkeypatch.setattr(ml.navegador, "baixar_html", lambda url, esperar=None: (None, "x", False))
+    res = ml.FonteMercadoLivre().buscar_ao_vivo("queening")
+    assert res.bloqueado and res.pausa_horas == 0.5
+    # navegador desligado no config: só a API
+    chamou = []
+    monkeypatch.setattr(ml.navegador, "baixar_html", lambda *a, **k: chamou.append(1))
+    ml.FonteMercadoLivre(navegador=False).buscar_ao_vivo("queening")
+    assert chamou == []
+
+
+def test_navegador_de_verdade(tmp_path):
+    """Abre uma página falsa do ML no Chromium (pula se o Chromium não estiver instalado)."""
+    import pytest
+
+    from scentinel import navegador
+
+    if not navegador.disponivel():
+        pytest.skip("playwright não instalado")
+    pagina = tmp_path / "busca.html"
+    pagina.write_text("<html><body>" + HTML_SITE + "</body></html>")
+    html, erro, bloqueado = navegador.baixar_html(f"file://{pagina}", esperar="div.poly-card", tempo_s=40)
+    if erro:  # Chromium não instalado / sem bibliotecas nessa máquina: é ambiente, não lógica
+        pytest.skip(erro)
+    assert not bloqueado
+    assert [a.preco for a in ml.achados_do_html(html, so_oficial=False)] == [1890.0, 1700.0]

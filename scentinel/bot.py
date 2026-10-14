@@ -1,5 +1,6 @@
 """Bot do Discord: loop de caça + slash commands."""
 
+import asyncio
 import datetime as dt
 import logging
 
@@ -7,7 +8,7 @@ import discord
 from discord import app_commands
 from discord.ext import tasks
 
-from scentinel import busca, catalogo, config, db, formato, promo
+from scentinel import busca, catalogo, config, db, formato, navegador, promo
 from scentinel.descoberta import Descoberta
 from scentinel.fontes import montar_fontes
 from scentinel.caca import Cacador
@@ -102,6 +103,9 @@ class BotScentinel(discord.Client):
         if self.descoberta:
             d = self.descoberta
             log.info("🔎 Busca automática ligada: %d perfumes em %d loja(s)", len(d.itens), len(d.fontes))
+            if any(getattr(f, "navegador", False) for f in d.fontes):
+                # Chromium do /locate: baixa sozinho na 1ª vez (em segundo plano, não atrasa o bot)
+                self._instalando_navegador = asyncio.create_task(asyncio.to_thread(navegador.garantir_instalado))
             self.loop_descoberta.start()
             if horario_top(self.cfg.descoberta.top_diario, self.cfg.fuso):
                 self.loop_top.start()

@@ -22,6 +22,7 @@ fi
 echo "2/4 instalando as dependências (demora uns minutos na primeira vez)..."
 .venv/bin/pip install -q --upgrade pip
 .venv/bin/pip install -q -r requirements.txt
+.venv/bin/python -m playwright install --only-shell chromium || echo "   ⚠️  Chromium do /locate não instalou (o /locate segue só com a API do ML)"
 
 echo "3/4 rodando os testes..."
 .venv/bin/python -m pytest -q

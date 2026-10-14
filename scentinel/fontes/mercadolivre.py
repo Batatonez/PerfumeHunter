@@ -13,6 +13,7 @@ Perfume falsificado é comum no ML: por padrão só entra anúncio de LOJA OFICI
 import json
 import logging
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 import os
 import random
 import re
@@ -24,7 +25,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 from bs4 import BeautifulSoup
 
-from scentinel import catalogo, coleta
+from scentinel import catalogo, coleta, navegador
 from scentinel.coleta import texto_para_preco
 from scentinel.fontes import Achado, ResultadoBusca, baixar_json, registrar
 
@@ -356,6 +357,34 @@ def detalhe_catalogo(total, situacao):
     return f"catálogo do ML: {total} produto(s)" + (f" ({', '.join(partes)})" if partes else "")
 
 
+MAX_ANUNCIOS_SITE = 48  # 1ª página da busca do site
+
+
+def _chave_do_link(url):
+    """O mesmo anúncio/produto em links diferentes (API x site): /p/MLB123 ou MLB-123456."""
+    m = re.search(r"/p/(MLB\d+)", url or "")
+    if m:
+        return f"p:{m.group(1)}"
+    m = re.search(r"MLB-?(\d+)", url or "")
+    return f"i:{m.group(1)}" if m else url
+
+
+def juntar_resultados(api, site):
+    """Junta a busca da API com a do site: a da API vem primeiro (sabe quem é loja oficial e bem avaliado).
+    Erro/bloqueio da API só vale se nada foi achado; erro só do site nunca pausa o ML."""
+    achados, vistos = [], set()
+    for a in api.achados + site.achados:
+        chave = _chave_do_link(a.url)
+        if chave not in vistos:
+            vistos.add(chave)
+            achados.append(a)
+    detalhe = "; ".join(d for d in (api.detalhe or (f"catálogo: {api.erro}" if api.erro else None), site.detalhe)
+                        if d) or None
+    if achados:
+        return ResultadoBusca(achados=achados, detalhe=detalhe)
+    return ResultadoBusca(erro=api.erro, bloqueado=api.bloqueado, pausa_horas=api.pausa_horas, detalhe=detalhe)
+
+
 def _grave(erro):
     """Erro que vale pra loja toda (login, recusa, limite): para a tarefa na hora."""
     return any(c in (erro or "") for c in ("401", "403", "429"))
@@ -385,7 +414,7 @@ class FonteMercadoLivre:
 
     def __init__(self, nome="Mercado Livre", so_loja_oficial=True, modo="auto", termos_varredura=None, paginas=1,
                  categorias_varredura=None, max_categorias=4, max_produtos=5, max_produtos_varredura=8,
-                 vendedor_bem_avaliado=True):
+                 vendedor_bem_avaliado=True, navegador=True):
         self.nome = nome
         self.so_oficial = so_loja_oficial
         self.modo = modo  # "auto" | "api" | "html"
@@ -405,6 +434,8 @@ class FonteMercadoLivre:
         # além da loja oficial, vale vendedor comum MercadoLíder Gold/Platinum com termômetro verde
         self.vendedor_bem_avaliado = vendedor_bem_avaliado
         self._reputacao = {}  # vendedor -> (bem avaliado?, vale até)
+        # /locate também pesquisa no site do ML (Chromium escondido): acha o que fica fora do catálogo
+        self.navegador = navegador
 
     @property
     def _so_masculino(self):
@@ -727,6 +758,26 @@ class FonteMercadoLivre:
             return ResultadoBusca(erro=f"página: {erro}", bloqueado=bloqueado)
         return ResultadoBusca(achados=achados)
 
+    # ---------------- site do ML pelo navegador (só no /locate) ----------------
+
+    def _buscar_site(self, termo):
+        slug = re.sub(r"[^a-z0-9]+", "-", catalogo.texto_titulo(termo)).strip("-")
+        html, erro, _ = navegador.baixar_html(f"https://lista.mercadolivre.com.br/{slug}",
+                                              esperar="div.poly-card, li.ui-search-layout__item")
+        if erro:
+            return ResultadoBusca(erro=f"site: {erro}", detalhe=f"site do ML: {erro}")
+        achados = achados_do_html(html, so_oficial=False)[:MAX_ANUNCIOS_SITE]
+        return ResultadoBusca(achados=achados, detalhe=f"site do ML: {len(achados)} anúncio(s)")
+
+    def buscar_ao_vivo(self, termo):
+        """/locate: catálogo (API) e site (navegador) ao mesmo tempo, juntando sem repetir o mesmo anúncio."""
+        if not self.navegador or self.modo == "html":
+            return self.buscar(termo)
+        with ThreadPoolExecutor(max_workers=2) as ex:
+            pela_api = ex.submit(self.buscar, termo)
+            pelo_site = ex.submit(self._buscar_site, termo)
+            return juntar_resultados(pela_api.result(), pelo_site.result())
+
     # ---------------- o que o bot chama ----------------
 
     def _pagina(self, termo, pagina):
@@ -856,7 +907,9 @@ def diagnostico(termo="sauvage dior", obter=None, completo=None):
             tipos = sorted({c.get("type") for c in conteudo if isinstance(c, dict)})
             linhas.append(f"   {len(conteudo)} item(ns), tipos: {', '.join(map(str, tipos)) or '-'}")
     if completo:  # o que o /locate mostraria (a busca de verdade, do jeito que o bot faz)
-        res = FonteMercadoLivre().buscar(termo)
+        site = FonteMercadoLivre()._buscar_site(termo)
+        linhas.append(f"{'❌' if site.erro else '✅'} {site.detalhe}")
+        res = FonteMercadoLivre().buscar_ao_vivo(termo)
         linhas.append(f"{'❌' if res.erro else '✅'} /locate \"{termo}\": {len(res.achados)} oferta(s)"
                       + (f" · {res.erro}" if res.erro else ""))
         for a in res.achados[:4]:

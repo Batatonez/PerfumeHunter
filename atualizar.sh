@@ -40,6 +40,16 @@ else
         .venv/bin/pip install -q -r requirements.txt
     fi
 
+    if grep -q "^playwright" requirements.txt; then
+        echo "🌐 Conferindo o Chromium do /locate (na 1ª vez baixa uns 100 MB)..."
+        if .venv/bin/python -m playwright install --only-shell chromium >/tmp/scentinel-chromium.log 2>&1; then
+            .venv/bin/python -c "from scentinel import navegador; _, e, _ = navegador.baixar_html('about:blank', tempo_s=60); print('   ✅ Chromium ok' if not e else '   ⚠️  Chromium: ' + e)" || true
+        else
+            tail -n 5 /tmp/scentinel-chromium.log
+            echo "   ⚠️  Não deu pra instalar o Chromium: o /locate segue só com a API do ML."
+        fi
+    fi
+
     echo "🧪 Rodando os testes..."
     if ! .venv/bin/python -m pytest -q -p no:cacheprovider >/tmp/scentinel-testes.log 2>&1; then
         tail -n 15 /tmp/scentinel-testes.log

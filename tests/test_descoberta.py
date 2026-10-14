@@ -724,3 +724,16 @@ def test_locate_so_mostra_perfume(amb):
                     achado("Perfume Stephane Humbert Lucas God Of Fire Parfum 50ml", 1800, "Loja A", "https://a/gof"))
     res = rodar(amb.desc.buscar_ao_vivo("god of fire"))
     assert [a.url for a, _, _ in res.ofertas] == ["https://a/gof"]
+
+
+def test_locate_usa_a_busca_ao_vivo_da_loja_e_aceita_titulo_com_ml(amb):
+    class FonteComSite(FonteFalsa):
+        def buscar_ao_vivo(self, termo):
+            return ResultadoBusca(achados=[
+                achado("Queening Mind Games 100ml Original", 1890, "Loja A", "https://a/q"),  # sem "perfume"
+                achado("God Of War - Fire Troll # 271 - Pop Funko", 450, "Loja A", "https://a/funko"),
+            ])
+
+    amb.desc.fontes = [FonteComSite("ml", "Loja A")]
+    res = rodar(amb.desc.buscar_ao_vivo("queening"))
+    assert [a.url for a, _, _ in res.ofertas] == ["https://a/q"]

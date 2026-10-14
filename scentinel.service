@@ -15,8 +15,8 @@ Environment=PYTHONUNBUFFERED=1
 ExecStart=__PASTA__/.venv/bin/python -m scentinel
 Restart=on-failure
 RestartSec=30
-# trava de segurança pra RAM (a máquina tem 3 GB)
-MemoryMax=300M
+# trava de segurança pra RAM (a máquina tem 3 GB): o bot + o Chromium do /locate (um por vez)
+MemoryMax=900M
 
 [Install]
 WantedBy=multi-user.target
