@@ -247,11 +247,17 @@ def embed_ao_vivo(res, max_linhas=8):
         if "catálogo do ML" in motivos and not re.search(r"site do ML: \d+ anúncio", motivos):
             # só o catálogo foi olhado: explica o limite (anúncio solto o ML não mostra pra bot)
             linhas.append("_O bot só enxerga o catálogo do ML: anúncio solto, fora dele, o ML não mostra pra bots._")
-        return {
+        links = getattr(res, "links", None) or []
+        for loja, link in links:
+            linhas.append(f"👉 **[Ver todos os anúncios no {loja}]({link})** (abre a busca completa, com os soltos)")
+        embed = {
             "title": f"🔎 {res.consulta}",
             "color": COR_NEUTRA,
             "description": cortar("\n".join(linhas)),
         }
+        if links:
+            embed["url"] = links[0][1]
+        return embed
     primeiro, ml, pct = res.ofertas[0]
     linhas = [
         f"🏆 **Mais barato:** [{primeiro.titulo[:90]}]({primeiro.url})",
@@ -263,6 +269,8 @@ def embed_ao_vivo(res, max_linhas=8):
         linhas += ["", "**Outras ofertas:**"]
         for achado, ml2, pct2 in res.ofertas[1:max_linhas]:
             linhas.append(f"• [{achado.titulo[:55]}]({achado.url})\n  " + _linha_oferta_viva(achado, ml2, pct2))
+    for loja, link in getattr(res, "links", None) or []:
+        linhas += ["", f"🔗 [Ver todos os anúncios no {loja}]({link})"]
     rodape = f"Procurei em: {', '.join(res.lojas_ok)}"
     if res.lojas_falha:
         rodape += f" · fora do ar agora: {', '.join(res.lojas_falha)}"

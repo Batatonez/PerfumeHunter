@@ -783,3 +783,20 @@ def test_locate_tenta_mesmo_com_pausa_de_limite_e_diz_o_erro(amb):
     assert amb.a.chamadas == ["sauvage dior"] and amb.b.chamadas == []  # B (login) nem tenta
     texto = embed_ao_vivo(res)["description"]
     assert "• Loja A: o ML pediu pra ir mais devagar (HTTP 429)" in texto
+
+
+def test_locate_sempre_tem_o_link_da_busca_completa(amb):
+    from scentinel.formato import embed_ao_vivo
+
+    class FonteComLink(FonteFalsa):
+        def link_busca(self, termo):
+            return f"https://lista.exemplo/{termo.replace(' ', '-')}"
+
+    amb.desc.fontes = [FonteComLink("ml", "Mercado Livre")]
+    res = rodar(amb.desc.buscar_ao_vivo("queening"))  # nada no catálogo
+    e = embed_ao_vivo(res)
+    assert "[Ver todos os anúncios no Mercado Livre](https://lista.exemplo/queening)" in e["description"]
+    assert e["url"] == "https://lista.exemplo/queening"  # o título também abre a busca
+    amb.desc.fontes[0].programar("sauvage dior", achado("Sauvage Dior EDP 100ml", 650, "Loja A", "https://a/s"))
+    e = embed_ao_vivo(rodar(amb.desc.buscar_ao_vivo("sauvage", "dior")))
+    assert "[Ver todos os anúncios no Mercado Livre](https://lista.exemplo/sauvage-dior)" in e["description"]

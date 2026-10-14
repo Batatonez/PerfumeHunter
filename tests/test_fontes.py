@@ -1070,3 +1070,8 @@ def test_ml_chamadas_da_api_respeitam_intervalo_entre_threads(monkeypatch, tmp_p
         t.join()
     horas.sort()
     assert all(b - a >= 0.19 for a, b in zip(horas, horas[1:]))  # /locate + varredura juntos: uma por vez
+
+
+def test_ml_link_da_busca():
+    assert ml.FonteMercadoLivre().link_busca("Queening Mind Games") == "https://lista.mercadolivre.com.br/queening-mind-games"
+    assert ml.FonteMercadoLivre().link_busca("torino21") == "https://lista.mercadolivre.com.br/torino21"

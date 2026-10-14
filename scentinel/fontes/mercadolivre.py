@@ -865,6 +865,11 @@ class FonteMercadoLivre:
             saida.append(a)
         return saida
 
+    def link_busca(self, termo):
+        """A busca do site do ML (pra pessoa abrir no app/navegador: lá aparecem até os anúncios soltos)."""
+        slug = re.sub(r"[^a-z0-9]+", "-", catalogo.texto_titulo(termo)).strip("-")
+        return f"https://lista.mercadolivre.com.br/{slug}"
+
     def buscar_ao_vivo(self, termo):
         """/locate: catálogo (API) e site (navegador) ao mesmo tempo, juntando sem repetir o mesmo anúncio.
         O site tem prazo próprio: se demorar, a resposta sai só com o catálogo (não perde o que a API achou)."""

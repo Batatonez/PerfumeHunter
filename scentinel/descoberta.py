@@ -69,6 +69,7 @@ class ResultadoAoVivo:
     lojas_ok: list = field(default_factory=list)
     lojas_falha: list = field(default_factory=list)
     detalhes: list = field(default_factory=list)  # [(loja, o que ela respondeu)] pra explicar quando não acha
+    links: list = field(default_factory=list)  # [(loja, link da busca no site)]: um toque abre tudo, até o que o bot não vê
 
 
 class Descoberta:
@@ -518,6 +519,7 @@ class Descoberta:
         Também guarda o que achar (histórico e /top), sem postar no canal."""
         consulta = " ".join(x for x in (nome, marca) if x).strip()
         resultado = ResultadoAoVivo(consulta)
+        resultado.links = [(f.nome, f.link_busca(consulta)) for f in self.fontes if hasattr(f, "link_busca")]
         fontes = [f for f in self.fontes if not self.pausada_pro_locate(f)]
         if not consulta or not fontes:
             return resultado
