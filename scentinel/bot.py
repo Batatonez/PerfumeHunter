@@ -2,13 +2,14 @@
 
 import asyncio
 import datetime as dt
+import io
 import logging
 
 import discord
 from discord import app_commands
 from discord.ext import tasks
 
-from scentinel import atualizar, busca, catalogo, config, db, formato, navegador, promo
+from scentinel import atualizar, busca, catalogo, config, db, formato, grafico, navegador, promo
 from scentinel.descoberta import Descoberta
 from scentinel.fontes import montar_fontes
 from scentinel.caca import Cacador
@@ -703,8 +704,9 @@ def registrar_comandos(tree):
         bot = interaction.client
         achados = busca.buscar(nome, db.listar_perfumes(bot.con))
         if not achados:
-            await interaction.response.send_message("Não achei esse perfume 🤷")
+            await interaction.response.send_message("Não achei esse perfume 🔍")
             return
+        await interaction.response.defer(thinking=True)
         perfume = achados[0][0]
         fr = formato.formatar_reais
         linhas = []
@@ -728,7 +730,15 @@ def registrar_comandos(tree):
             "color": formato.COR_NEUTRA,
             "description": formato.cortar("\n".join(linhas) or "Sem anúncios."),
         }
-        await interaction.response.send_message(embed=discord.Embed.from_dict(embed))
+        arquivos = []
+        dados = grafico.dados_do_grafico(bot.con, perfume, nome_fuso=bot.cfg.fuso)
+        png = await asyncio.to_thread(grafico.desenhar, *dados) if dados else None
+        if png:
+            arquivos.append(discord.File(io.BytesIO(png), filename="historico.png"))
+            embed["image"] = {"url": "attachment://historico.png"}
+        elif linhas:
+            embed["footer"] = {"text": "📈 O gráfico aparece quando tiver leitura de pelo menos 2 dias."}
+        await interaction.edit_original_response(embed=discord.Embed.from_dict(embed), attachments=arquivos)
 
     @tree.command(name="top", description="As melhores promos das últimas 24 h, uma por perfume")
     async def top(interaction: discord.Interaction):

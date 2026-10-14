@@ -5,4 +5,5 @@ lxml>=5
 rapidfuzz>=3,<4
 python-dotenv>=1,<2
 tzdata
+pillow>=10.1  # gráfico do /historico
 pytest>=8
