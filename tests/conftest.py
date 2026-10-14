@@ -13,6 +13,6 @@ def ml_sem_login(monkeypatch, tmp_path):
     monkeypatch.setattr(ml, "_respiro", lambda: None)
     # a fonte do ML nem abre o Chromium de verdade (o teste do navegador usa o módulo direto, de propósito)
     monkeypatch.setattr(ml, "navegador", SimpleNamespace(
-        baixar_html=lambda *a, **k: (None, "navegador desligado no teste", False)))
+        baixar_html=lambda *a, **k: (None, "navegador desligado no teste", False), disponivel=lambda: False))
     for var in ("ML_CLIENT_ID", "ML_CLIENT_SECRET", "ML_REDIRECT_URI"):
         monkeypatch.delenv(var, raising=False)

@@ -135,7 +135,7 @@ def test_ml_html():
     assert len(achados) == 1
     a = achados[0]
     assert a.preco == 689.9 and a.preco_de == 899.0 and a.preco_pix == 655.4 and a.oficial
-    assert a.url == "https://www.mercadolivre.com.br/sauvage/p/MLB1"
+    assert a.url == "https://www.mercadolivre.com.br/p/MLB1"  # mesmo link que a API usa pro produto
     assert len(ml.achados_do_html(HTML_ML, so_oficial=False)) == 2
 
 
@@ -869,3 +869,36 @@ def test_navegador_de_verdade(tmp_path):
         pytest.skip(erro)
     assert not bloqueado
     assert [a.preco for a in ml.achados_do_html(html, so_oficial=False)] == [1890.0, 1700.0]
+
+
+
+def test_ml_varredura_pelo_site_so_loja_oficial(monkeypatch, tmp_path):
+    _com_login(monkeypatch, tmp_path)
+    urls = []
+    monkeypatch.setattr(ml.navegador, "disponivel", lambda: True)
+    monkeypatch.setattr(ml.navegador, "baixar_html",
+                        lambda url, esperar=None: (urls.append(url), (HTML_SITE.encode(), None, False))[1])
+    fonte = ml.FonteMercadoLivre(termos_varredura=["perfume masculino"], termos_site=["perfume masculino",
+                                                                                     "perfume feminino"])
+    fonte.publico = "masculino"
+    tarefas = dict(fonte.tarefas_varredura())
+    assert 'ML site "perfume masculino" (loja oficial)' in tarefas
+    assert 'ML site "perfume feminino" (loja oficial)' not in tarefas  # canal masculino
+    res = tarefas['ML site "perfume masculino" (loja oficial)']()
+    assert urls == ["https://lista.mercadolivre.com.br/perfume-masculino_Loja_all"]
+    assert all(a.oficial for a in res.achados) and len(res.achados) == 2  # a busca já veio filtrada
+    assert "https://www.mercadolivre.com.br/p/MLB1" in [a.url for a in res.achados]
+
+
+def test_ml_site_com_problema_nao_conta_como_erro_do_ml(monkeypatch, tmp_path):
+    _com_login(monkeypatch, tmp_path)
+    monkeypatch.setattr(ml.navegador, "disponivel", lambda: True)
+    monkeypatch.setattr(ml.navegador, "baixar_html", lambda url, esperar=None: (None, "Chromium não instalado", False))
+    fonte = ml.FonteMercadoLivre(termos_site=["perfume masculino"])
+    res = fonte._varrer_site("perfume masculino")
+    assert res.pulado and not res.erro  # não pausa o ML (a API segue)
+    monkeypatch.setattr(ml.navegador, "baixar_html", lambda url, esperar=None: (None, "pediu verificação", True))
+    assert fonte._varrer_site("perfume masculino").pulado
+    assert not any("site" in r for r, _ in fonte.tarefas_varredura())  # site pediu verificação: para 6 h
+    monkeypatch.setattr(ml.navegador, "disponivel", lambda: False)
+    assert not any("site" in r for r, _ in ml.FonteMercadoLivre().tarefas_varredura())  # sem playwright

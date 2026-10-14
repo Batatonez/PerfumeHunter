@@ -152,6 +152,9 @@ so_loja_oficial = true
 vendedor_bem_avaliado = true
 # O /locate também pesquisa no site do ML num Chromium escondido (acha o que fica fora do catálogo).
 navegador = true
+# A varredura de hora em hora também olha a busca do site, só loja oficial, com estes termos:
+site_na_varredura = true
+termos_site = ["perfume masculino", "perfume importado masculino", "perfume arabe", "perfume unissex"]
 # Precisa do login uma vez: python -m scentinel ml-login (veja o README).
 # Com login, a varredura pega os mais vendidos das categorias de perfume e busca estes termos no
 # catálogo do ML (cada produto: o vendedor oficial mais barato). Sem login, só a página (captcha).

@@ -142,6 +142,12 @@ def _token_valido(caminho):
     return None, "falhou"
 
 
+def _link_canonico(url):
+    """Página de produto do catálogo vira /p/MLB...: o mesmo produto achado no site e na API é um anúncio só."""
+    m = re.search(r"/p/(MLB\d+)", url or "")
+    return url_produto(m.group(1)) if m else url
+
+
 def _valor(elemento):
     return coleta._valor_andes(elemento) if elemento else None
 
@@ -176,7 +182,7 @@ def achados_do_html(html, so_oficial=True, ja_filtrado=False):
         foto = (img.get("data-src") or img.get("src")) if img else None
         saida.append(Achado(
             titulo=titulo,
-            url=href.split("#")[0].split("?")[0],
+            url=_link_canonico(href.split("#")[0].split("?")[0]),
             preco=preco,
             loja="Mercado Livre",
             preco_de=preco_de if preco_de and preco_de > preco else None,
@@ -407,6 +413,8 @@ def _tem_token_salvo(caminho=None):
 class FonteMercadoLivre:
     id = "mercadolivre"
 
+    TERMOS_SITE = ["perfume masculino", "perfume importado masculino", "perfume arabe", "perfume unissex"]
+
     TERMOS_VARREDURA = [
         "perfume masculino", "perfume feminino", "perfume importado", "perfume arabe",
         "eau de parfum", "eau de toilette", "perfume nicho", "perfume unissex",
@@ -414,7 +422,7 @@ class FonteMercadoLivre:
 
     def __init__(self, nome="Mercado Livre", so_loja_oficial=True, modo="auto", termos_varredura=None, paginas=1,
                  categorias_varredura=None, max_categorias=4, max_produtos=5, max_produtos_varredura=8,
-                 vendedor_bem_avaliado=True, navegador=True):
+                 vendedor_bem_avaliado=True, navegador=True, site_na_varredura=True, termos_site=None):
         self.nome = nome
         self.so_oficial = so_loja_oficial
         self.modo = modo  # "auto" | "api" | "html"
@@ -436,6 +444,10 @@ class FonteMercadoLivre:
         self._reputacao = {}  # vendedor -> (bem avaliado?, vale até)
         # /locate também pesquisa no site do ML (Chromium escondido): acha o que fica fora do catálogo
         self.navegador = navegador
+        # e a varredura de hora em hora olha a busca do site só com loja oficial (mais estoque pro canal)
+        self.site_na_varredura = site_na_varredura
+        self.termos_site = list(termos_site or self.TERMOS_SITE)
+        self._sem_site_ate = 0
 
     @property
     def _so_masculino(self):
@@ -769,6 +781,21 @@ class FonteMercadoLivre:
         achados = achados_do_html(html, so_oficial=False)[:MAX_ANUNCIOS_SITE]
         return ResultadoBusca(achados=achados, detalhe=f"site do ML: {len(achados)} anúncio(s)")
 
+    def _varrer_site(self, termo):
+        """Tarefa da varredura: a busca do site só com loja oficial (_Loja_all). Problema do navegador nunca
+        conta como erro do ML (a API segue normal): vira tarefa pulada; se o site pedir verificação, para 6 h."""
+        if time.time() < self._sem_site_ate:
+            return ResultadoBusca(pulado=True)
+        slug = re.sub(r"[^a-z0-9]+", "-", catalogo.texto_titulo(termo)).strip("-")
+        html, erro, bloqueado = navegador.baixar_html(f"https://lista.mercadolivre.com.br/{slug}_Loja_all",
+                                                      esperar="div.poly-card, li.ui-search-layout__item")
+        if erro:
+            if bloqueado:
+                self._sem_site_ate = time.time() + 6 * 3600
+            log.warning("ML site \"%s\": %s%s", termo, erro, " (paro o site por 6 h)" if bloqueado else "")
+            return ResultadoBusca(pulado=True)
+        return ResultadoBusca(achados=achados_do_html(html, so_oficial=True, ja_filtrado=True)[:MAX_ANUNCIOS_SITE])
+
     def buscar_ao_vivo(self, termo):
         """/locate: catálogo (API) e site (navegador) ao mesmo tempo, juntando sem repetir o mesmo anúncio."""
         if not self.navegador or self.modo == "html":
@@ -802,6 +829,11 @@ class FonteMercadoLivre:
             rotulos = conhecidas if conhecidas is not None else ["(descobrindo categorias)"]
             tarefas = [(f"ML mais vendidos {c}", (lambda i=i: self._mais_vendidos(i)))
                        for i, c in enumerate(rotulos[: self.max_categorias])] + tarefas
+        if (self.navegador and self.site_na_varredura and self.modo != "html"
+                and time.time() >= self._sem_site_ate and navegador.disponivel()):
+            termos_site = [t for t in self.termos_site
+                           if not (self._so_masculino and catalogo.genero_do_texto(t) == "f")]
+            tarefas += [(f"ML site \"{t}\" (loja oficial)", (lambda t=t: self._varrer_site(t))) for t in termos_site]
         return tarefas
 
     def buscar(self, termo):
