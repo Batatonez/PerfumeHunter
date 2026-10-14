@@ -129,6 +129,19 @@ def embed_alerta(oferta, nome_fuso="America/Sao_Paulo"):
     return embed
 
 
+def embed_vitrine(oferta, nome_fuso="America/Sao_Paulo"):
+    """Post da vitrine: igual ao alerta, mas o título não diz "sem promo" quando não tem desconto."""
+    embed = embed_alerta(oferta, nome_fuso)
+    av = oferta.avaliacao
+    if not av.nivel:
+        if av.referencia and av.pct and av.pct >= 5:  # 1-4% não é desconto que valha anunciar
+            embed["title"] = f"🛍️ VITRINE — {formatar_pct(av.pct)} OFF"
+        else:
+            embed["title"] = "🛍️ VITRINE — achado do Scentinel"
+    embed["footer"] = {"text": f"🛍️ Vitrine · checado em {formatar_data(oferta.quando, nome_fuso)}"}
+    return embed
+
+
 # ============================================================
 # /locate
 # ============================================================

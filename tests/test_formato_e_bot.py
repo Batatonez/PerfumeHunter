@@ -273,3 +273,23 @@ def test_clear_so_admin_e_com_confirmacao():
 
     assert asyncio.run(limpar_canal(Canal())) == 2
     assert pedidos["limit"] is None and pedidos["bulk"]
+
+
+def test_embed_vitrine():
+    from scentinel.formato import embed_vitrine
+
+    sem_promo = oferta_exemplo(avaliacao=Avaliacao(659.90, None, None, 0, None))
+    e = embed_vitrine(sem_promo)
+    assert e["title"] == "🛍️ VITRINE — achado do Scentinel" and e["footer"]["text"].startswith("🛍️ Vitrine")
+    com_desconto = oferta_exemplo(avaliacao=Avaliacao(659.90, 750, "loja", 12, None))
+    assert embed_vitrine(com_desconto)["title"] == "🛍️ VITRINE — 12% OFF"
+    assert embed_vitrine(oferta_exemplo())["title"] == "🟠 NÍVEL 3 · RASTRO — 34% OFF"  # promo: título normal
+
+
+def test_vitrine_liga_com_o_bot():
+    from scentinel.bot import BotScentinel, texto_vitrine
+
+    bot = BotScentinel(config.carregar_config(), config.Segredos("x", 1, 2, 3), db.conectar(":memory:"))
+    assert bot.loop_vitrine.minutes == 15
+    assert "a cada 15 min" in texto_vitrine({"minutos": 15, "conhecidas": 3, "ultimo_post": None})
+    assert "desligada" in texto_vitrine({"minutos": 0, "conhecidas": 0, "ultimo_post": None})

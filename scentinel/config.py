@@ -42,6 +42,8 @@ class ConfigDescoberta:
     so_menor_preco: bool = True  # mesmo perfume e tamanho mais barato em outra loja -> não posta
     top_diario: str = "19:00"  # horário do 🏆 Top do dia ("" desliga)
     top_n: int = 5
+    vitrine_minutos: float = 15  # posta a melhor oferta conhecida a cada X min (0 desliga)
+    vitrine_sem_repetir_horas: float = 72  # a vitrine evita repetir o mesmo perfume nesse período
     varredura: bool = True  # varre as ofertas de perfume das lojas (estilo canal de promos)
     varredura_minutos: float = 60
     ml_min: float = 30  # frascos menores que isso (miniaturas) ficam de fora
@@ -141,6 +143,8 @@ def carregar_config(caminho=ARQ_CONFIG):
         so_menor_preco=bool(d.get("so_menor_preco", True)),
         top_diario=str(d.get("top_diario", "19:00")),
         top_n=int(d.get("top_n", 5)),
+        vitrine_minutos=max(float(d.get("vitrine_minutos", 15)), 0),
+        vitrine_sem_repetir_horas=max(float(d.get("vitrine_sem_repetir_horas", 72)), 1),
         varredura=bool(d.get("varredura", True)),
         varredura_minutos=max(float(d.get("varredura_minutos", 60)), 30),
         ml_min=float(d.get("ml_min", 30)),

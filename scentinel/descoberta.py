@@ -257,9 +257,10 @@ class Descoberta:
         return [c for c in (self.preparar(a, fonte, so_item) for a in achados) if c]
 
     def _vale_rastrear(self, c):
-        """Na varredura, só guarda o que é do catálogo, tem desconto anunciado ou já é conhecido
-        (senão o banco enche de perfume a preço cheio)."""
-        if c.item:
+        """Na varredura, o que vale guardar. Com a vitrine ligada, guarda tudo que pode ir pro canal: é o
+        estoque dela e o histórico que depois mostra quando o preço caiu de verdade. Sem vitrine, só o que é
+        do catálogo, tem desconto anunciado ou já é conhecido (senão o banco enche de perfume a preço cheio)."""
+        if c.item or self.cfg.vitrine_minutos:
             return True
         a = c.achado
         if a.preco_de and a.preco_de >= a.preco * (1 + self.cfg.desconto_min_rastrear / 100):
@@ -573,6 +574,69 @@ class Descoberta:
     # ------------------------------------------------------------
     # 🏆 Top do dia
     # ------------------------------------------------------------
+
+    # ------------------------------------------------------------
+    # 4) VITRINE: um post a cada X min, mesmo sem promo nova
+    # ------------------------------------------------------------
+
+    def escolher_vitrine(self, agora=None):
+        """A melhor oferta conhecida que ainda não foi pro canal nas últimas `vitrine_sem_repetir_horas`
+        (nem o mesmo perfume). Ordem: promo (nível) > maior desconto > perfume do catálogo > menor R$/ml.
+        Se tudo já foi postado, repete o que saiu há mais tempo (no mínimo 12 h atrás)."""
+        agora = agora or self.cacador.relogio()
+        postados = db.ultimos_posts_desde(self.con, agora - timedelta(hours=self.cfg.vitrine_sem_repetir_horas))
+        ultimo_do_anuncio = {p["anuncio_id"]: db.de_texto(p["quando"]) for p in postados}
+        perfumes_postados = {p["catalogo_id"] or p["perfume_id"] for p in postados}
+        novos, repetidos = [], []
+        for anuncio in db.anuncios_descobertos_recentes(self.con, agora - timedelta(hours=24)):
+            item = self.cacador.catalogo.get(anuncio.get("catalogo_id"))
+            if not self.no_publico(None, item, titulo=anuncio.get("titulo") or anuncio.get("perfume_nome") or ""):
+                continue
+            oferta = self.cacador.oferta_atual(anuncio)
+            if not oferta or oferta.esgotado or not oferta.preco:
+                continue
+            av = oferta.avaliacao
+            pct = av.pct if av.referencia and av.pct else 0
+            nota = (0 if av.nivel else 1, -pct, 0 if item else 1, oferta.por_ml or oferta.preco)
+            chave = anuncio.get("catalogo_id") or anuncio["perfume_id"]
+            if anuncio["id"] in ultimo_do_anuncio or chave in perfumes_postados:
+                quando = ultimo_do_anuncio.get(anuncio["id"]) or agora - timedelta(hours=12)
+                repetidos.append((quando, nota, oferta))
+            else:
+                novos.append((nota, oferta))
+        if novos:
+            return min(novos, key=lambda x: x[0])[1]
+        antigos = [r for r in repetidos if agora - r[0] >= timedelta(hours=12)]
+        if antigos:
+            return min(antigos, key=lambda x: (x[0], x[1]))[2]
+        return None
+
+    async def postar_vitrine(self, enviar):
+        """Posta a oferta da vitrine (enviar(oferta) -> bool). Pula se já saiu post no canal agora há pouco."""
+        if not self.cfg.vitrine_minutos:
+            return None
+        agora = self.cacador.relogio()
+        if db.alertas_desde(self.con, agora - timedelta(minutes=self.cfg.vitrine_minutos * 0.9)):
+            return None  # acabou de sair promo: a vitrine espera a próxima vez
+        oferta = self.escolher_vitrine(agora)
+        if not oferta:
+            log.info("🛍️ Vitrine: nada pra mostrar agora (%d oferta(s) conhecida(s) nas últimas 24 h)",
+                     len(db.anuncios_descobertos_recentes(self.con, agora - timedelta(hours=24))))
+            return None
+        if not await enviar(oferta):
+            return None
+        # nível fica vazio: post da vitrine não conta no limite diário de @everyone
+        db.registrar_alerta(self.con, oferta.anuncio_id, "vitrine", None, oferta.preco, agora)
+        log.info("🛍️ Vitrine: %s %s", oferta.titulo, formatar_reais(oferta.preco))
+        return oferta
+
+    def resumo_vitrine(self, agora=None):
+        agora = agora or self.cacador.relogio()
+        return {
+            "minutos": self.cfg.vitrine_minutos,
+            "conhecidas": len(db.anuncios_descobertos_recentes(self.con, agora - timedelta(hours=24))),
+            "ultimo_post": db.ultimo_post(self.con),
+        }
 
     def top(self, n=None, horas=24):
         """Melhores ofertas atuais (uma por perfume), maior desconto primeiro."""

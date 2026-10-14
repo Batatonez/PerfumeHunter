@@ -395,6 +395,20 @@ def anuncios_descobertos_recentes(con, desde):
     return [_dict(l) for l in con.execute(sql, (para_texto(desde),))]
 
 
+def ultimos_posts_desde(con, desde):
+    """Anúncios que foram pro canal desde `desde`, com o último horário e o perfume (pra vitrine não repetir)."""
+    sql = (
+        "SELECT al.anuncio_id, MAX(al.quando) AS quando, a.perfume_id, a.catalogo_id "
+        "FROM alertas al JOIN anuncios a ON a.id = al.anuncio_id WHERE al.quando >= ? GROUP BY al.anuncio_id"
+    )
+    return [_dict(l) for l in con.execute(sql, (para_texto(desde),))]
+
+
+def ultimo_post(con):
+    linha = con.execute("SELECT MAX(quando) FROM alertas").fetchone()
+    return de_texto(linha[0]) if linha and linha[0] else None
+
+
 def alertas_desde(con, desde):
     return con.execute("SELECT COUNT(*) FROM alertas WHERE quando >= ?", (para_texto(desde),)).fetchone()[0]
 

@@ -114,6 +114,12 @@ so_menor_preco = true
 # 🏆 Top do dia (horário de Brasília; "" desliga) e quantos itens.
 top_diario = "19:00"
 top_n = 5
+
+# Vitrine: a cada X minutos posta a melhor oferta que o bot conhece (promo primeiro), tentando não
+# repetir o mesmo perfume por `vitrine_sem_repetir_horas`. Se acabar o que mostrar, repete o mais antigo.
+# 0 desliga (aí só sai post quando aparece promo).
+vitrine_minutos = 15
+vitrine_sem_repetir_horas = 72
 # VARREDURA (estilo canal de promos): de hora em hora percorre as ofertas de perfume das lojas
 # e posta QUALQUER perfume em promo boa (não só os do catálogo), maiores descontos primeiro.
 varredura = true

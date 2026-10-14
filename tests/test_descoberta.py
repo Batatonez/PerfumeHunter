@@ -226,9 +226,11 @@ def test_varredura_posta_perfume_fora_do_catalogo(amb):
     # só o "de R$" da própria loja confirma os 50%: nível limitado a 3 (sem marcar ninguém)
     assert oferta.avaliacao.nivel.nivel == 3 and mencao is None
     assert oferta.perfume == "Lumina Queening Le Parfum EDP"
-    # o resto nem virou anúncio (não é perfume, é kit, é miniatura, ou está a preço cheio)
-    for url in ("https://a/h", "https://a/kit", "https://a/mini", "https://a/y"):
+    # o resto nem virou anúncio (não é perfume, é kit, é miniatura)
+    for url in ("https://a/h", "https://a/kit", "https://a/mini"):
         assert db.anuncio_por_url(amb.con, url) is None
+    # o perfume a preço cheio fica guardado (estoque da vitrine e histórico), mas não vira post de promo
+    assert db.anuncio_por_url(amb.con, "https://a/y") is not None
 
 
 def test_varredura_posta_maiores_descontos_primeiro(amb):
@@ -607,3 +609,77 @@ def test_locate_explica_por_que_nao_achou(amb):
     texto = embed_ao_vivo(res)["description"]
     assert "• Loja A: nenhum produto com esse nome no catálogo do ML" in texto
     assert "fora do catálogo" in texto  # explica o limite da API do ML
+
+
+# ============================================================
+# VITRINE: um post a cada 15 min
+# ============================================================
+
+def _vitrine_com(amb, *achados):
+    amb.a.varredura = [pagina(*achados)]
+    rodar(amb.desc.varredura(forcar=True))
+    amb.alertas.clear()
+
+
+def test_vitrine_posta_a_melhor_e_nao_repete(amb):
+    amb.cfg.descoberta.max_alertas_por_hora = 0  # a varredura não posta nada: só a vitrine
+    _vitrine_com(
+        amb,
+        achado("Perfume Lumina Bravo Masculino EDP 100ml", 300, "Loja A", "https://a/bravo"),  # preço cheio
+        achado("Perfume Lumina Forte Masculino EDP 100ml", 250, "Loja A", "https://a/forte", preco_de=300),  # −17%
+        achado("Sauvage Dior Eau de Parfum 100ml", 840, "Loja A", "https://a/sauvage"),  # catálogo, preço normal
+    )
+    amb.cfg.descoberta.max_alertas_por_hora = 10
+    postados = []
+
+    async def enviar(oferta):
+        postados.append(oferta.url)
+        return True
+
+    for _ in range(4):
+        amb.relogio.agora += timedelta(minutes=15)
+        rodar(amb.desc.postar_vitrine(enviar))
+    # maior desconto primeiro, depois o do catálogo, depois o resto; sem repetir; e para quando acaba
+    assert postados == ["https://a/forte", "https://a/sauvage", "https://a/bravo"]
+    # 12 h depois, sem nada novo: repete o que saiu há mais tempo ("tentar não repetir, mas sla")
+    amb.relogio.agora += timedelta(hours=12)
+    rodar(amb.desc.varredura(forcar=True))  # leituras novas (a vitrine só usa o que foi lido nas últimas 24 h)
+    rodar(amb.desc.postar_vitrine(enviar))
+    assert postados[-1] == "https://a/forte"
+
+
+def test_vitrine_espera_se_acabou_de_sair_promo(amb):
+    _vitrine_com(amb, achado("Perfume Lumina Bravo Masculino EDP 100ml", 300, "Loja A", "https://a/bravo"))
+    anuncio = db.anuncio_por_url(amb.con, "https://a/bravo")
+    db.registrar_alerta(amb.con, anuncio["id"], "nivel", 2, 300, amb.relogio.agora - timedelta(minutes=5))
+
+    async def enviar(oferta):
+        raise AssertionError("não era pra postar")
+
+    assert rodar(amb.desc.postar_vitrine(enviar)) is None
+
+
+def test_vitrine_sem_feminino_e_desligavel(amb):
+    _vitrine_com(amb, achado("Perfume Lumina Aurora Feminino EDP 100ml", 150, "Loja A", "https://a/fem"))
+    assert amb.desc.escolher_vitrine() is None  # canal masculino: feminino não entra nem na vitrine
+    amb.cfg.descoberta.vitrine_minutos = 0
+
+    async def enviar(oferta):
+        raise AssertionError("desligada")
+
+    assert rodar(amb.desc.postar_vitrine(enviar)) is None
+
+
+def test_vitrine_registra_post_sem_nivel(amb):
+    amb.cfg.descoberta.max_alertas_por_hora = 0
+    _vitrine_com(amb, achado("Perfume Lumina Bravo Masculino EDP 100ml", 300, "Loja A", "https://a/bravo"))
+    amb.cfg.descoberta.max_alertas_por_hora = 10
+
+    async def enviar(oferta):
+        return True
+
+    oferta = rodar(amb.desc.postar_vitrine(enviar))
+    alerta = db.ultimo_alerta(amb.con, oferta.anuncio_id, amb.relogio.agora - timedelta(minutes=1))
+    assert alerta["tipo"] == "vitrine" and alerta["nivel"] is None  # não conta no limite de @everyone
+    resumo = amb.desc.resumo_vitrine()
+    assert resumo["minutos"] == 15 and resumo["conhecidas"] == 1 and resumo["ultimo_post"] == amb.relogio.agora

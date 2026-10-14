@@ -76,6 +76,8 @@ class BotScentinel(discord.Client):
                 horario = horario_top(cfg.descoberta.top_diario, cfg.fuso)
                 if horario:
                     self.loop_top.change_interval(time=horario)
+                if cfg.descoberta.vitrine_minutos:
+                    self.loop_vitrine.change_interval(minutes=cfg.descoberta.vitrine_minutos)
 
     # ------------------------------------------------------------
     # ciclo de vida
@@ -103,6 +105,8 @@ class BotScentinel(discord.Client):
             self.loop_descoberta.start()
             if horario_top(self.cfg.descoberta.top_diario, self.cfg.fuso):
                 self.loop_top.start()
+            if self.cfg.descoberta.vitrine_minutos:
+                self.loop_vitrine.start()
 
     async def on_ready(self):
         log.info("✅ Bot online como %s", self.user)
@@ -143,6 +147,16 @@ class BotScentinel(discord.Client):
             log.exception("falha ao mandar alerta")
             return False
 
+    async def enviar_vitrine(self, oferta):
+        try:
+            canal = await self.canal()
+            embed = discord.Embed.from_dict(formato.embed_vitrine(oferta, self.cfg.fuso))
+            await canal.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+            return True
+        except discord.DiscordException:
+            log.exception("falha ao mandar a vitrine")
+            return False
+
     async def enviar_aviso(self, texto):
         try:
             canal = await self.canal()
@@ -178,6 +192,17 @@ class BotScentinel(discord.Client):
 
     @loop_descoberta.before_loop
     async def antes_da_descoberta(self):
+        await self.wait_until_ready()
+
+    @tasks.loop(minutes=15)
+    async def loop_vitrine(self):
+        try:
+            await self.descoberta.postar_vitrine(self.enviar_vitrine)
+        except Exception:
+            log.exception("erro na vitrine")
+
+    @loop_vitrine.before_loop
+    async def antes_da_vitrine(self):
         await self.wait_until_ready()
 
     @tasks.loop(time=dt.time(19, 0))
@@ -298,6 +323,14 @@ def texto_status(estados, nome_fuso="America/Sao_Paulo"):
             linhas.append(f"   último erro: {_motivo_curto(e['ultimo_erro'])}")
     linhas.append("O dono pode usar `/varrer` pra tentar de novo agora.")
     return "\n".join(linhas)
+
+
+def texto_vitrine(resumo, nome_fuso="America/Sao_Paulo"):
+    if not resumo["minutos"]:
+        return "🛍️ Vitrine desligada (vitrine_minutos = 0 no config.toml)"
+    ultimo = formato.formatar_data(resumo["ultimo_post"], nome_fuso) if resumo["ultimo_post"] else "nenhum ainda"
+    return (f"🛍️ Vitrine: 1 post a cada {resumo['minutos']:g} min · {resumo['conhecidas']} oferta(s) conhecida(s) "
+            f"nas últimas 24 h · último post no canal: {ultimo}")
 
 
 def texto_pausadas(estados, nome_fuso="America/Sao_Paulo"):
@@ -563,6 +596,7 @@ def registrar_comandos(tree):
             await interaction.response.send_message("A busca automática está desligada no config.toml.", ephemeral=True)
             return
         texto = texto_status(bot.descoberta.estado_fontes(), bot.cfg.fuso)
+        texto += "\n" + texto_vitrine(bot.descoberta.resumo_vitrine(), bot.cfg.fuso)
         await interaction.response.send_message(formato.cortar(texto, 1900), ephemeral=True)
 
     @tree.command(name="checar", description="Força uma rodada de checagem agora (só o dono)")
