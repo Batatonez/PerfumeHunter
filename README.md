@@ -126,10 +126,10 @@ O `instalar.sh` faz quatro coisas:
 4. Monte o link de convite trocando `CLIENT_ID` pelo Client ID que você copiou:
 
    ```
-   https://discord.com/oauth2/authorize?client_id=CLIENT_ID&scope=bot+applications.commands&permissions=150528
+   https://discord.com/oauth2/authorize?client_id=CLIENT_ID&scope=bot+applications.commands&permissions=224256
    ```
 
-   O `150528` dá ao bot só quatro permissões: ver canais, mandar mensagem, mandar embed (o card bonito) e mencionar @everyone (usada só no 💎 Bug de preço). Se o bot já estiver no servidor, abrir o link de novo e autorizar atualiza as permissões.
+   O `224256` dá ao bot só seis permissões: ver canais, mandar mensagem, mandar embed (o card bonito), mencionar @everyone (usada só no 💎 Bug de preço), e gerenciar mensagens + ver histórico (só pro `/clear`). Se o bot já estiver no servidor, abrir o link de novo e autorizar atualiza as permissões.
 5. Abra o link, escolha o seu servidor e autorize.
 6. (Opcional) Em **General Information**, coloque a descrição e as tags:
 
@@ -268,6 +268,7 @@ Reinicie com a tampa fechada (`sudo reboot`). Espere uns 2 minutos e veja se o b
 | `/varrer` | dono | força a varredura de ofertas agora (normalmente é de hora em hora); tira a pausa das lojas |
 | `/status` | todos | mostra se cada loja está funcionando ou pausada (até quando e por quê) |
 | `/despausar` | dono | tira a pausa das lojas na hora |
+| `/clear [quantidade]` | admin | apaga as mensagens do canal (todas ou as últimas N; as fixadas ficam), com confirmação |
 | `/add url nome ml [alvo] [marca] [seletor]` | dono | cadastra um anúncio, **testa o preço na hora** e mostra o que leu |
 | `/remove anuncio` | dono | para de vigiar (tem autocomplete) |
 | `/top` | todo mundo | as melhores promos das últimas 24 h, uma por perfume |

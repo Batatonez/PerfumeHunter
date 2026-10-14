@@ -15,7 +15,8 @@ from scentinel.caca import Cacador
 log = logging.getLogger("scentinel")
 
 
-PERMISSOES = 1024 | 2048 | 16384 | 131072  # ver canais + mandar mensagem + embed + mencionar @everyone
+# ver canais + mandar mensagem + gerenciar mensagens (/clear) + embed + ler histórico (/clear) + mencionar @everyone
+PERMISSOES = 1024 | 2048 | 8192 | 16384 | 65536 | 131072
 
 
 def link_convite(application_id):
@@ -244,6 +245,41 @@ async def autocomplete_anuncio(interaction, atual):
 # ============================================================
 # COMANDOS
 # ============================================================
+
+async def limpar_canal(canal, quantidade=None):
+    """Apaga as mensagens do canal (as fixadas ficam). Mensagem com mais de 14 dias o Discord só deixa
+    apagar uma por uma, então canal antigo e grande demora. Devolve quantas apagou."""
+    apagadas = await canal.purge(limit=quantidade, check=lambda m: not m.pinned, bulk=True,
+                                 reason="/clear de um admin")
+    return len(apagadas)
+
+
+class ConfirmarLimpeza(discord.ui.View):
+    """Botões "Apagar" / "Cancelar" (só quem pediu vê: a mensagem é efêmera)."""
+
+    def __init__(self, quantidade=None):
+        super().__init__(timeout=60)
+        self.quantidade = quantidade
+
+    @discord.ui.button(label="Apagar", style=discord.ButtonStyle.danger, emoji="🧹")
+    async def apagar(self, interaction: discord.Interaction, botao: discord.ui.Button):
+        self.stop()
+        await interaction.response.edit_message(content="🧹 Apagando... (canal grande pode demorar)", view=None)
+        try:
+            n = await limpar_canal(interaction.channel, self.quantidade)
+        except discord.Forbidden:
+            await interaction.edit_original_response(content=(
+                "❌ Me falta permissão pra apagar. No Discord: Configurações do servidor → Cargos → Scentinel → "
+                "liga **Gerenciar mensagens** e **Ver histórico de mensagens**. Ou abre de novo o link de "
+                f"convite pra atualizar: {link_convite(interaction.client.application_id)}"))
+            return
+        await interaction.edit_original_response(content=f"🧹 Apaguei {n} mensagem(ns). As fixadas ficaram.")
+
+    @discord.ui.button(label="Cancelar", style=discord.ButtonStyle.secondary)
+    async def cancelar(self, interaction: discord.Interaction, botao: discord.ui.Button):
+        self.stop()
+        await interaction.response.edit_message(content="Beleza, não apaguei nada.", view=None)
+
 
 def _motivo_curto(texto):
     return formato.cortar(str(texto or "?").removeprefix("api: ").removeprefix("página: "), 160)
@@ -491,6 +527,19 @@ def registrar_comandos(tree):
         if problemas:
             texto += "\n" + "\n".join(problemas[:8])
         await interaction.edit_original_response(content=formato.cortar(texto, 1900))
+
+    @tree.command(name="clear", description="Apaga as mensagens deste canal (só admin)")
+    @app_commands.describe(quantidade="Quantas mensagens apagar, das mais novas pra trás (vazio = todas)")
+    @app_commands.default_permissions(administrator=True)  # nem aparece pra quem não é admin
+    @app_commands.guild_only()
+    async def clear(interaction: discord.Interaction, quantidade: app_commands.Range[int, 1, 10000] | None = None):
+        if not interaction.permissions.administrator:  # confere de novo (o servidor pode mudar quem vê)
+            await interaction.response.send_message("Só admin pode usar isso 🙅", ephemeral=True)
+            return
+        alvo = f"as últimas **{quantidade}** mensagens" if quantidade else "**todas** as mensagens"
+        await interaction.response.send_message(
+            f"Apagar {alvo} deste canal? As fixadas ficam. **Não tem volta.**",
+            view=ConfirmarLimpeza(quantidade), ephemeral=True)
 
     @tree.command(name="despausar", description="Tira a pausa das lojas agora (só o dono)")
     async def despausar(interaction: discord.Interaction):

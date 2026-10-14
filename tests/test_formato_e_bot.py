@@ -82,7 +82,7 @@ def test_comandos_registram_sem_erro():
     registrar_comandos(bot.tree)
     nomes = {c.name for c in bot.tree.get_commands()}
     assert nomes == {"locate", "add", "remove", "lista", "historico", "checar", "teste_alerta", "top", "varrer",
-                     "status", "despausar"}
+                     "status", "despausar", "clear"}
 
 
 def test_bot_fora_do_servidor_mostra_link_de_convite(caplog):
@@ -106,7 +106,7 @@ def test_bot_fora_do_servidor_mostra_link_de_convite(caplog):
     with pytest.raises(SystemExit):
         asyncio.run(bot.setup_hook())
     assert link_convite(999) in caplog.text
-    assert "client_id=999&scope=bot+applications.commands&permissions=150528" in link_convite(999)
+    assert "client_id=999&scope=bot+applications.commands&permissions=224256" in link_convite(999)
 
 
 def test_montar_mencao():
@@ -230,3 +230,46 @@ def test_despausar_pelo_discord():
     asyncio.run(bot.tree.get_command("despausar").callback(interacao))
     assert not desc.pausada(ml) and desc._fonte_falhas == {}  # a próxima pausa volta a ser curta
     assert "Mercado Livre" in respostas[0]
+
+
+def test_clear_so_admin_e_com_confirmacao():
+    import asyncio
+    from types import SimpleNamespace
+
+    from scentinel.bot import BotScentinel, ConfirmarLimpeza, limpar_canal, registrar_comandos
+
+    bot = BotScentinel(config.carregar_config(), config.Segredos("x", 1, 2, 3), db.conectar(":memory:"))
+    registrar_comandos(bot.tree)
+    cmd = bot.tree.get_command("clear")
+    assert cmd.default_permissions.administrator  # escondido de quem não é admin
+    respostas = []
+
+    async def responder(texto, **kw):
+        respostas.append((texto, kw))
+
+    def interacao(admin):
+        return SimpleNamespace(client=bot, permissions=SimpleNamespace(administrator=admin),
+                               response=SimpleNamespace(send_message=responder))
+
+    asyncio.run(cmd.callback(interacao(False)))
+    assert "Só admin" in respostas[-1][0] and respostas[-1][1]["ephemeral"]
+
+    async def com_admin():  # a View precisa de um loop rodando
+        await cmd.callback(interacao(True), quantidade=None)
+
+    asyncio.run(com_admin())
+    texto, kw = respostas[-1]
+    assert "**todas** as mensagens" in texto and "Não tem volta" in texto and kw["ephemeral"]
+    assert isinstance(kw["view"], ConfirmarLimpeza)
+
+    # a limpeza em si: apaga tudo menos as fixadas
+    pedidos = {}
+
+    class Canal:
+        async def purge(self, **kw):
+            pedidos.update(kw)
+            msgs = [SimpleNamespace(pinned=False), SimpleNamespace(pinned=True), SimpleNamespace(pinned=False)]
+            return [m for m in msgs if kw["check"](m)]
+
+    assert asyncio.run(limpar_canal(Canal())) == 2
+    assert pedidos["limit"] is None and pedidos["bulk"]
