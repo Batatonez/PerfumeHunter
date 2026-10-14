@@ -350,8 +350,8 @@ def registrar_comandos(tree):
         nome="Nome do perfume (pode ser aproximado, ex.: 'sauvage edp')",
         marca="Marca (opcional, ex.: 'dior')",
     )
-    @app_commands.autocomplete(nome=autocomplete_perfume, marca=autocomplete_marca)
     async def locate(interaction: discord.Interaction, nome: str, marca: str | None = None):
+        # sem sugestão de nome: o /locate pesquisa do zero toda vez, nada vem do que já foi guardado
         await interaction.response.defer(thinking=True)
         try:
             await _locate(interaction, nome, marca)

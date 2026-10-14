@@ -81,7 +81,6 @@ class Descoberta:
         self._fonte_ultimo_erro = {}  # último erro (mesmo sem pausar)
         self._ultima_varredura = None
         self.trava_varredura = asyncio.Lock()  # uma varredura por vez (loop e /varrer)
-        self._em_segundo_plano = set()
         cacador.catalogo = {i.id: i for i in self.itens}
         for fonte in self.fontes:  # a fonte pode economizar (ex.: ML pula a categoria feminina)
             if hasattr(fonte, "publico"):
@@ -512,7 +511,7 @@ class Descoberta:
         conc = busca.detectar_concentracao(consulta)
         palavras = [p for p in busca.normalizar(nome).split() if p not in catalogo._palavras_conc()]
         marca_norm = busca.normalizar(marca) if marca else None
-        candidatos, ofertas = [], []
+        ofertas = []
         for fonte, res in zip(fontes, respostas):
             if isinstance(res, Exception):
                 if isinstance(res, TimeoutError):
@@ -535,7 +534,6 @@ class Descoberta:
                 ml = a.ml or catalogo.extrair_ml(a.titulo, a.variacao or "")
                 pct = (a.preco_de - a.preco) / a.preco_de * 100 if a.preco_de and a.preco_de > a.preco else 0
                 ofertas.append((a, ml, pct))
-                candidatos.append((a, fonte))
             if len(ofertas) == antes:  # essa loja não trouxe nada que sirva: guarda o porquê
                 outros = sum(1 for a in res.achados if a.disponivel)
                 motivo = res.detalhe or ("nenhum resultado" if not res.achados else "")
@@ -550,26 +548,8 @@ class Descoberta:
             if o[0].url not in vistos:
                 vistos.add(o[0].url)
                 unicas.append(o)
-        resultado.ofertas = unicas
-        if candidatos:
-            # grava pro histórico/top em segundo plano: a resposta do /locate não espera a trava
-            tarefa = asyncio.create_task(self._gravar_ao_vivo(candidatos, consulta, agora))
-            self._em_segundo_plano.add(tarefa)
-            tarefa.add_done_callback(self._em_segundo_plano.discard)
+        resultado.ofertas = unicas  # o /locate só mostra: não grava nada (pesquisa sempre do zero)
         return resultado
-
-    async def _gravar_ao_vivo(self, pares, consulta, agora):
-        try:
-            cands = []
-            for a, fonte in pares:
-                c = self.preparar(a, fonte)
-                if c:
-                    c.refazer = _como_refazer(fonte, c.achado, lambda f=fonte, q=consulta: f.buscar(q))
-                    cands.append(c)
-            if cands:
-                await self._processar(cands, agora, avisar=False)
-        except Exception:
-            log.exception("erro gravando o resultado do /locate")
 
     # ------------------------------------------------------------
     # 🏆 Top do dia

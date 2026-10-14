@@ -286,16 +286,11 @@ def test_busca_ao_vivo(amb):
     amb.b.programar("queening", achado("Perfume Lumina Queening Eau de Parfum 100ml", 189.9, "Loja B", "https://b/q"),
                     achado("Outro Perfume Qualquer 100ml", 99, "Loja B", "https://b/x"))
 
-    async def buscar_e_esperar_gravacao():
-        r = await amb.desc.buscar_ao_vivo("queening")
-        await asyncio.gather(*amb.desc._em_segundo_plano)  # a gravação roda depois da resposta
-        return r
-
-    res = rodar(buscar_e_esperar_gravacao())
+    res = rodar(amb.desc.buscar_ao_vivo("queening"))
     assert [a.url for a, _, _ in res.ofertas] == ["https://b/q", "https://a/q"]  # mais barato primeiro, sem lixo
     assert res.lojas_ok == ["Loja A", "Loja B"]
     assert amb.alertas == []  # pesquisa não posta no canal
-    assert db.anuncio_por_url(amb.con, "https://a/q") is not None  # mas guarda pro histórico
+    assert db.anuncio_por_url(amb.con, "https://a/q") is None  # e não guarda nada: a próxima pesquisa é do zero
 
 
 def test_busca_ao_vivo_com_marca_e_loja_fora(amb):
@@ -442,12 +437,7 @@ def test_publico_todos_posta_feminino(amb):
 def test_locate_mostra_feminino_mas_nao_guarda(amb):
     amb.a.programar("aurora", achado("Perfume Lumina Aurora Feminino EDP 100ml", 150, "Loja A", "https://a/fem"))
 
-    async def buscar_e_esperar_gravacao():
-        r = await amb.desc.buscar_ao_vivo("aurora")
-        await asyncio.gather(*amb.desc._em_segundo_plano)
-        return r
-
-    res = rodar(buscar_e_esperar_gravacao())
+    res = rodar(amb.desc.buscar_ao_vivo("aurora"))
     assert [a.url for a, _, _ in res.ofertas] == ["https://a/fem"]  # pesquisa mostra tudo
     assert db.anuncio_por_url(amb.con, "https://a/fem") is None  # mas o canal masculino não rastreia
 

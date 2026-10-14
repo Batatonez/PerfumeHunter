@@ -363,3 +363,11 @@ def test_locate_nunca_usa_preco_guardado():
     interacao = SimpleNamespace(client=bot, response=SimpleNamespace(defer=defer), edit_original_response=editar)
     asyncio.run(bot.tree.get_command("locate").callback(interacao, nome="sauvage"))
     assert edicoes[-1]["embed"].description.startswith("Não achei **sauvage**")
+
+
+def test_locate_sem_sugestao():
+    from scentinel.bot import BotScentinel, registrar_comandos
+
+    bot = BotScentinel(config.carregar_config(), config.Segredos("x", 1, 2, 3), db.conectar(":memory:"))
+    registrar_comandos(bot.tree)
+    assert not any(p.autocomplete for p in bot.tree.get_command("locate").parameters)
