@@ -230,6 +230,31 @@ def embed_top(ofertas, titulo="🏆 Top do dia", nome_fuso="America/Sao_Paulo"):
     }
 
 
+def embed_top_semana(itens, nome_fuso="America/Sao_Paulo"):
+    """itens: Descoberta.top_semana() -> maiores % OFF que passaram no canal nos últimos 7 dias."""
+    linhas = []
+    for i, it in enumerate(itens, 1):
+        a, atual = it["anuncio"], it["agora"]
+        nome = a["perfume_nome"] + (f" {a['ml']:g}ml" if a.get("ml") else "")
+        linha = (f"**{i}. [{nome}]({a['url']})**\n"
+                 f"🏷️ **{formatar_pct(it['pct'])} OFF** · {formatar_reais(it['preco'])} em "
+                 f"{formatar_data(it['quando'], nome_fuso)[:5]}")
+        if atual and not atual.esgotado:
+            if atual.preco <= it["preco"] * 1.02:
+                linha += " · ✅ ainda nesse preço"
+            else:
+                linha += f" · agora {formatar_reais(atual.preco)}"
+        elif atual:
+            linha += " · ⚪ esgotou"
+        linhas.append(linha)
+    return {
+        "title": "🏆 Top da semana",
+        "color": 0xF1C40F,
+        "description": cortar("\n\n".join(linhas) or "Semana fraca: nenhuma promo boa passou no canal."),
+        "footer": {"text": "Os maiores descontos que passaram no canal nos últimos 7 dias · preços podem mudar"},
+    }
+
+
 # ============================================================
 # /locate ao vivo
 # ============================================================

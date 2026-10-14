@@ -39,6 +39,12 @@ class RespostaLocate:
     texto: str | None = None  # quando não tem embed pra mostrar
 
 
+def pct_do_post(oferta):
+    """% OFF que vai pro registro do post (None sem referência)."""
+    av = oferta.avaliacao
+    return round(av.pct, 1) if av.referencia and av.pct and av.pct > 0 else None
+
+
 def limpar_nome(nome):
     """Tira o tamanho do nome ('Sauvage EDP 100ml' -> 'Sauvage EDP'): o ml fica no anúncio."""
     nome = re.sub(r"\s*\d+([.,]\d+)?\s*ml\b", "", nome, flags=re.IGNORECASE)
@@ -289,7 +295,7 @@ class Cacador:
                 tipo = "+".join(t for t, sim in (("nivel", decisao.nivel), ("alvo", decisao.alvo)) if sim)
                 db.registrar_alerta(
                     self.con, anuncio["id"], tipo,
-                    decisao.nivel.nivel if decisao.nivel else None, leitura.preco, agora,
+                    decisao.nivel.nivel if decisao.nivel else None, leitura.preco, agora, pct_do_post(oferta),
                 )
                 emoji, avisou = "🔥", True
             else:

@@ -228,8 +228,18 @@ class BotScentinel(discord.Client):
     async def antes_do_top(self):
         await self.wait_until_ready()
 
-    async def postar_top(self):
-        ofertas = self.descoberta.top() if self.descoberta else []
+    async def postar_top(self, hoje=None):
+        """Top do dia; no domingo, o 🏆 Top da semana (se a semana teve promo; senão, o do dia)."""
+        if not self.descoberta:
+            return False
+        hoje = hoje or dt.datetime.now(formato.fuso(self.cfg.fuso)).date()
+        if self.cfg.descoberta.top_semanal and hoje.weekday() == 6:
+            itens = self.descoberta.top_semana()
+            if itens:
+                canal = await self.canal()
+                await canal.send(embed=discord.Embed.from_dict(formato.embed_top_semana(itens, self.cfg.fuso)))
+                return True
+        ofertas = self.descoberta.top()
         if not ofertas:
             return False  # dia fraco: não posta "nada hoje" no canal
         canal = await self.canal()

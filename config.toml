@@ -114,6 +114,8 @@ so_menor_preco = true
 # 🏆 Top do dia (horário de Brasília; "" desliga) e quantos itens.
 top_diario = "19:00"
 top_n = 5
+# Domingo, nesse mesmo horário, sai o 🏆 Top da semana (maiores % OFF que passaram no canal em 7 dias).
+top_semanal = true
 
 # Vitrine: a cada X minutos, em horário redondo (com 15: 10:00, 10:15, 10:30...), posta a melhor oferta que
 # o bot conhece (promo primeiro), tentando não

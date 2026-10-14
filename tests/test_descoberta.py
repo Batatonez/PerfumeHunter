@@ -807,3 +807,53 @@ def test_locate_sempre_tem_o_link_da_busca_completa(amb):
     amb.desc.fontes[0].programar("sauvage dior", achado("Sauvage Dior EDP 100ml", 650, "Loja A", "https://a/s"))
     e = embed_ao_vivo(rodar(amb.desc.buscar_ao_vivo("sauvage", "dior")))
     assert "[Ver todos os anúncios no Mercado Livre](https://lista.exemplo/sauvage-dior)" in e["description"]
+
+
+def test_send_por_estilo_e_estilo_pela_marca(amb):
+    amb.cfg.descoberta.max_alertas_por_hora = 0
+    _vitrine_com(
+        amb,
+        achado("Perfume Lattafa Asad Bourbon Masculino EDP 100ml", 260, "Loja A", "https://a/asad", marca="Lattafa"),
+        achado("Sauvage Dior Eau de Parfum 100ml", 840, "Loja A", "https://a/sauvage"),
+        achado("Perfume Lumina Bravo Masculino EDP 100ml", 300, "Loja A", "https://a/bravo"),
+    )
+    amb.cfg.descoberta.max_alertas_por_hora = 10
+    postados = []
+
+    async def enviar(oferta):
+        postados.append((oferta.url, oferta.estilo, oferta.categoria))
+        return True
+
+    async def sem_pausa(_s):
+        pass
+
+    assert rodar(amb.desc.mandar_varias(5, enviar, pausa=sem_pausa, filtro=Descoberta.filtro_oferta("arabe"))) == 1
+    assert postados == [("https://a/asad", "arabe", "🕌 Árabe")]  # fora do catálogo: estilo pela marca
+    rodar(amb.desc.mandar_varias(5, enviar, pausa=sem_pausa, filtro=Descoberta.filtro_oferta("outros")))
+    assert postados[-1][0] == "https://a/bravo" and postados[-1][1] is None
+
+
+def test_top_da_semana_usa_o_desconto_da_hora_do_post(amb):
+    amb.cfg.descoberta.max_alertas_por_hora = 0
+    _vitrine_com(
+        amb,
+        achado("Perfume Lumina Forte Masculino EDP 100ml", 250, "Loja A", "https://a/forte", preco_de=300),
+        achado("Perfume Lumina Bravo Masculino EDP 100ml", 300, "Loja A", "https://a/bravo"),
+    )
+    amb.cfg.descoberta.max_alertas_por_hora = 10
+
+    async def enviar(oferta):
+        return True
+
+    rodar(amb.desc.postar_vitrine(enviar))  # Forte, 17% OFF
+    amb.relogio.agora += timedelta(minutes=15)
+    rodar(amb.desc.postar_vitrine(enviar))  # Bravo, sem desconto: fica fora do top
+    itens = amb.desc.top_semana()
+    assert [i["anuncio"]["url"] for i in itens] == ["https://a/forte"]
+    assert round(itens[0]["pct"]) == 17 and itens[0]["agora"].preco == 250
+    from scentinel.formato import embed_top_semana
+
+    e = embed_top_semana(itens)
+    assert e["title"] == "🏆 Top da semana" and "**17% OFF**" in e["description"] and "ainda nesse preço" in e["description"]
+    amb.relogio.agora += timedelta(days=8)
+    assert amb.desc.top_semana() == []  # passou de 7 dias

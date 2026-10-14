@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 
 from scentinel import busca, catalogo, db, promo
+from scentinel.caca import pct_do_post
 from scentinel.coleta import Leitura, Resultado
 from scentinel.fontes import ResultadoBusca, fonte_busca_item
 from scentinel.formato import formatar_reais
@@ -648,7 +649,8 @@ class Descoberta:
             if not await enviar(oferta):
                 break
             perfumes.add(chave)
-            db.registrar_alerta(self.con, oferta.anuncio_id, "vitrine", None, oferta.preco, self.cacador.relogio())
+            db.registrar_alerta(self.con, oferta.anuncio_id, "vitrine", None, oferta.preco, self.cacador.relogio(),
+                                pct_do_post(oferta))
             enviadas += 1
         log.info("🛍️ /send: %d de %d oferta(s) (%d novas, %d já postadas conhecidas)",
                  enviadas, quantidade, len(novas), len(repetidas))
@@ -685,7 +687,7 @@ class Descoberta:
         if not await enviar(oferta):
             return None
         # nível fica vazio: post da vitrine não conta no limite diário de @everyone
-        db.registrar_alerta(self.con, oferta.anuncio_id, "vitrine", None, oferta.preco, agora)
+        db.registrar_alerta(self.con, oferta.anuncio_id, "vitrine", None, oferta.preco, agora, pct_do_post(oferta))
         log.info("🛍️ Vitrine: %s %s", oferta.titulo, formatar_reais(oferta.preco))
         return oferta
 
@@ -696,6 +698,26 @@ class Descoberta:
             "conhecidas": len(db.anuncios_descobertos_recentes(self.con, agora - timedelta(hours=24))),
             "ultimo_post": db.ultimo_post(self.con),
         }
+
+    def top_semana(self, n=None, agora=None):
+        """🏆 Top da semana: os maiores % OFF que foram pro canal nos últimos 7 dias, um por perfume.
+        Cada item: {"anuncio", "pct", "preco", "quando", "agora": Oferta atual ou None}."""
+        n = n or self.cfg.top_n
+        agora = agora or self.cacador.relogio()
+        itens, perfumes = [], set()
+        for post in db.posts_com_desconto_desde(self.con, agora - timedelta(days=7), pct_min=5):
+            chave = post["catalogo_id"] or post["perfume_id"]
+            if chave in perfumes:
+                continue
+            anuncio = db.anuncio_por_id(self.con, post["anuncio_id"])
+            if not anuncio:
+                continue
+            perfumes.add(chave)
+            itens.append({"anuncio": anuncio, "pct": post["pct"], "preco": post["preco"],
+                          "quando": db.de_texto(post["quando"]), "agora": self.cacador.oferta_atual(anuncio)})
+            if len(itens) >= n:
+                break
+        return itens
 
     def top(self, n=None, horas=24):
         """Melhores ofertas atuais (uma por perfume), maior desconto primeiro."""

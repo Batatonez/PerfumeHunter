@@ -92,6 +92,9 @@ MIGRACOES = {
         "oficial": "INTEGER NOT NULL DEFAULT 0",     # loja oficial / vendido pela própria loja
         "imagem": "TEXT",                            # foto do produto
     },
+    "alertas": {
+        "pct": "REAL",                               # % OFF na hora do post (pro 🏆 Top da semana)
+    },
 }
 
 
@@ -320,12 +323,22 @@ def estatisticas(con, anuncio_id):
 # ALERTAS
 # ============================================================
 
-def registrar_alerta(con, anuncio_id, tipo, nivel, preco, quando=None):
+def registrar_alerta(con, anuncio_id, tipo, nivel, preco, quando=None, pct=None):
     con.execute(
-        "INSERT INTO alertas (anuncio_id, tipo, nivel, preco, quando) VALUES (?, ?, ?, ?, ?)",
-        (anuncio_id, tipo, nivel, preco, para_texto(quando or agora_utc())),
+        "INSERT INTO alertas (anuncio_id, tipo, nivel, preco, quando, pct) VALUES (?, ?, ?, ?, ?, ?)",
+        (anuncio_id, tipo, nivel, preco, para_texto(quando or agora_utc()), pct),
     )
     con.commit()
+
+
+def posts_com_desconto_desde(con, desde, pct_min=1):
+    """Posts do canal (promo e vitrine) com % OFF desde `desde`, do maior desconto pro menor."""
+    sql = (
+        "SELECT al.anuncio_id, al.pct, al.preco, al.quando, a.catalogo_id, a.perfume_id FROM alertas al"
+        " JOIN anuncios a ON a.id = al.anuncio_id WHERE al.quando >= ? AND al.pct >= ?"
+        " ORDER BY al.pct DESC, al.preco"
+    )
+    return [_dict(l) for l in con.execute(sql, (para_texto(desde), pct_min))]
 
 
 # ============================================================

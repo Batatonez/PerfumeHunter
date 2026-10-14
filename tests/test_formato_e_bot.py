@@ -409,3 +409,28 @@ def test_locate_sem_sugestao():
     bot = BotScentinel(config.carregar_config(), config.Segredos("x", 1, 2, 3), db.conectar(":memory:"))
     registrar_comandos(bot.tree)
     assert not any(p.autocomplete for p in bot.tree.get_command("locate").parameters)
+
+
+def test_domingo_sai_o_top_da_semana():
+    import asyncio
+    import datetime as dt
+    from types import SimpleNamespace
+
+    from scentinel.bot import BotScentinel
+
+    bot = BotScentinel(config.carregar_config(), config.Segredos("x", 1, 2, 3), db.conectar(":memory:"))
+    enviados = []
+
+    async def canal():
+        async def send(**kw):
+            enviados.append(kw["embed"].title)
+        return SimpleNamespace(send=send)
+
+    bot.canal = canal
+    anuncio = {"perfume_nome": "Khamrah", "ml": 100, "url": "https://x"}
+    bot.descoberta.top_semana = lambda: [{"anuncio": anuncio, "pct": 30, "preco": 199, "quando": db.agora_utc(),
+                                          "agora": None}]
+    bot.descoberta.top = lambda: [oferta_exemplo()]
+    assert asyncio.run(bot.postar_top(hoje=dt.date(2026, 10, 18)))  # domingo
+    assert asyncio.run(bot.postar_top(hoje=dt.date(2026, 10, 19)))  # segunda
+    assert enviados == ["🏆 Top da semana", "🏆 Top do dia"]
