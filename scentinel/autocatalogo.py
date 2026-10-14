@@ -2,13 +2,16 @@
 masculinos/unissex novos que valem a pena.
 
 Regras (pra não encher o catálogo de lixo nem inventar promo):
-- só perfume visto em pelo menos 2 leituras na última semana (não entra anúncio que apareceu uma vez);
+- só perfume visto em pelo menos 2 leituras na última semana, em 2 anúncios ou em 2 dias diferentes
+  (não entra anúncio que apareceu uma vez);
 - só masculino ou unissex, e de marca que o bot conhece (o estilo vem dela: designer/nicho/árabe/nacional);
 - não pode já estar no catálogo, nem ter sido tirado pelo dono (/catalogo remover não volta mais);
 - preço normal = mediana do que a semana mostrou (se o perfume esteve em promo a semana toda, a referência
   fica baixa: o bot erra pro lado de NÃO postar);
 - palavras de outras versões da mesma marca viram "evitar" (Khamrah não engole o Khamrah Qahwa);
-- no máximo 15 por dia, os mais vistos primeiro.
+- não entra versão "genérica" de perfume que o catálogo já tem (Sauvage sem concentração não vira item:
+  ela engoliria o EDT, o EDP e o Elixir com um preço misturado);
+- no máximo 15 por dia e 60 no total, os mais vistos primeiro; quem some do ML por 30 dias sai.
 
 Fica em dados/catalogo_auto.json (o catalogo.toml, feito à mão, não é mexido).
 """
@@ -28,8 +31,10 @@ log = logging.getLogger("scentinel")
 
 ARQ_AUTO = PASTA_PROJETO / "dados" / "catalogo_auto.json"
 MAX_POR_DIA = 15
+MAX_TOTAL = 60  # cada item é mais uma busca no ML a cada 6 h: o catálogo automático não cresce sem fim
 MIN_LEITURAS = 2
 DIAS = 7
+EXPIRA_DIAS = 30  # item que ninguém mais vende há 30 dias sai sozinho (pode voltar se reaparecer)
 FATOR_PRECO_BOM = 0.78  # igual ao catálogo feito à mão: ~22% abaixo do normal
 
 _CONC = re.compile(
@@ -126,8 +131,24 @@ def _evitar(item, titulos_da_marca, titulos_proprios=()):
     for titulo in titulos_da_marca:
         palavras = _palavras_que_diferenciam(catalogo.nome_limpo(titulo, limite=120))
         if nome and nome <= palavras:
-            extras.update(palavras - permitidas)
-    return sorted(p for p in extras if not p.isdigit() and len(p) >= 3)[:12]
+            extras.update(p for p in palavras - permitidas if not p.isdigit() and len(p) >= 3)
+    return sorted(p for p, _ in extras.most_common(12))  # as versões que mais aparecem
+
+
+def _palavras_do_nome(item_ou_nome, marca):
+    """Palavras que identificam o perfume dentro da marca (sem concentração e sem a marca)."""
+    marca_norm = set(busca.normalizar(marca).split())
+    return frozenset(p for p in catalogo._palavras(busca.normalizar(busca.separar_numeros(item_ou_nome)))
+                     if p not in marca_norm)
+
+
+def _ja_coberto(marca, palavras, itens):
+    """O catálogo já tem esse perfume (com qualquer concentração) ou uma versão mais específica dele?
+    Ex.: 'Sauvage' sem concentração é coberto por Sauvage EDT/EDP/Elixir; 'Eros' pelo Eros EDT/EDP."""
+    for item in itens:
+        if busca.marca_bate(marca, item.marca) and palavras <= _palavras_do_nome(item.nome, item.marca):
+            return True
+    return False
 
 
 def _slug(texto):
@@ -144,22 +165,23 @@ def _grupos(con, agora, itens):
     desde = db.para_texto(agora - timedelta(days=DIAS))
     ids = {i.id for i in itens}
     linhas = con.execute(
-        "SELECT a.id, a.catalogo_id, a.titulo, a.ml, p.preco, pf.marca FROM anuncios a"
+        "SELECT a.id, a.catalogo_id, a.titulo, a.ml, p.preco, pf.marca, p.quando FROM anuncios a"
         " JOIN precos p ON p.anuncio_id = a.id JOIN perfumes pf ON pf.id = a.perfume_id"
         " WHERE a.origem = 'descoberta' AND p.esgotado = 0 AND p.quando >= ? AND a.titulo IS NOT NULL",
         (desde,),
     ).fetchall()
     grupos, por_marca = {}, {}
-    for anuncio_id, chave, titulo, ml, preco, marca in linhas:
+    for anuncio_id, chave, titulo, ml, preco, marca, quando in linhas:
         if marca:
             por_marca.setdefault(busca.normalizar(marca), set()).add(titulo)
         if chave in ids or not ml:
             continue
         g = grupos.setdefault((chave or titulo).rsplit("|", 1)[0], {"titulos": Counter(), "precos": {}, "marca": marca,
-                                                                     "anuncios": set()})
+                                                                     "anuncios": set(), "dias": set()})
         g["titulos"][titulo] += 1
         g["precos"].setdefault(ml, []).append(preco)
         g["anuncios"].add(anuncio_id)
+        g["dias"].add(quando[:10])
         g["marca"] = g["marca"] or marca
     return grupos, por_marca
 
@@ -176,8 +198,8 @@ def candidatos(con, itens, agora=None, removidos=(), limite=MAX_POR_DIA):
 def escolher(preparado, itens, removidos=(), limite=MAX_POR_DIA):
     """[(ItemCatalogo, leituras)] novos pro catálogo, os mais vistos primeiro."""
     grupos, titulos_por_marca = preparado
-    existentes = {(busca.normalizar(i.marca), busca.normalizar(i.nome), i.concentracao) for i in itens}
     ids = {i.id for i in itens} | set(removidos)
+    escolhidos = set()  # (marca, palavras do nome) que já entraram nesta rodada
     achados = []
     for g in grupos.values():
         leituras = sum(len(p) for p in g["precos"].values())
@@ -185,6 +207,8 @@ def escolher(preparado, itens, removidos=(), limite=MAX_POR_DIA):
         marca = g["marca"]
         if leituras < MIN_LEITURAS or not marca:
             continue
+        if len(g["anuncios"]) < 2 and len(g["dias"]) < 2:
+            continue  # um anúncio só, num dia só: pode ser coisa de momento
         if not catalogo.e_perfume(titulo) or catalogo.e_lixo(titulo):
             continue
         genero = catalogo.genero_do_texto(*g["titulos"])
@@ -197,6 +221,10 @@ def escolher(preparado, itens, removidos=(), limite=MAX_POR_DIA):
             continue  # já é de um item do catálogo
         nome = nome_do_titulo(titulo, marca)
         if not nome:
+            continue
+        palavras = _palavras_do_nome(nome, marca)
+        chave = (busca.normalizar(marca), palavras)
+        if not palavras or chave in escolhidos or _ja_coberto(marca, palavras, itens):
             continue
         conc = busca.detectar_concentracao(titulo)
         ml_ref = max(g["precos"], key=lambda m: (len(g["precos"][m]), m))
@@ -214,34 +242,68 @@ def escolher(preparado, itens, removidos=(), limite=MAX_POR_DIA):
             preco_bom=round(normal * FATOR_PRECO_BOM),
             busca=[f"{nome} {marca}".lower()],
         )
-        if item.id in ids or (busca.normalizar(marca), busca.normalizar(nome), conc) in existentes:
+        if item.id in ids:
             continue
         ok, _ = catalogo.casar(item, titulo, marca)
         if not ok:
             continue  # o nome montado não casa nem com o próprio título: melhor não arriscar
         item.evitar = _evitar(item, titulos_por_marca.get(busca.normalizar(marca), ()), g["titulos"])
         ids.add(item.id)
-        existentes.add((busca.normalizar(marca), busca.normalizar(nome), conc))
+        escolhidos.add(chave)
         achados.append((item, leituras, len(g["anuncios"])))
     achados.sort(key=lambda t: (-t[1], -t[2], t[0].id))
     return [(item, leituras) for item, leituras, _ in achados[:limite]]
 
 
-def gravar(novos, arq=None):
-    """Acrescenta [(ItemCatalogo, leituras)] no catalogo_auto.json."""
-    if not novos:
-        return
+def vagas(arq=None):
+    """Quantos ainda podem entrar hoje (máximo por dia e no total)."""
+    return max(0, min(MAX_POR_DIA, MAX_TOTAL - len(carregar(arq)["itens"])))
+
+
+def gravar(novos, arq=None, agora=None):
+    """Acrescenta [(ItemCatalogo, leituras)] no catalogo_auto.json (o que já estiver lá não duplica).
+    Devolve os que entraram de fato."""
     dados = carregar(arq)
-    dados["itens"] += [asdict(item) for item, _ in novos]
+    ja = {d.get("id") for d in dados["itens"]} | set(dados["removidos"])
+    entram = [(item, n) for item, n in novos if item.id not in ja]
+    if not entram:
+        return []
+    quando = db.para_texto(agora or db.agora_utc())
+    dados["itens"] += [{**asdict(item), "criado_em": quando} for item, _ in entram]
     salvar(dados, arq)
-    log.info("📚 Catálogo automático: +%d (%s)", len(novos), ", ".join(i.nome_exibicao for i, _ in novos))
+    log.info("📚 Catálogo automático: +%d (%s)", len(entram), ", ".join(i.nome_exibicao for i, _ in entram))
+    return entram
+
+
+def expirar(con, agora=None, arq=None):
+    """Tira (sem bloquear a volta) o que entrou há mais de 30 dias e não teve leitura nos últimos 30.
+    Lê o banco: roda na thread do bot. Devolve os ids que saíram."""
+    agora = agora or db.agora_utc()
+    limite = agora - timedelta(days=EXPIRA_DIAS)
+    dados = carregar(arq)
+    ficam, saem = [], []
+    for d in dados["itens"]:
+        criado = db.de_texto(d.get("criado_em")) if d.get("criado_em") else None
+        visto = con.execute(
+            "SELECT 1 FROM precos p JOIN anuncios a ON a.id = p.anuncio_id"
+            " WHERE a.catalogo_id = ? AND p.quando >= ? LIMIT 1", (d.get("id"), db.para_texto(limite)),
+        ).fetchone()
+        if criado and criado < limite and not visto:
+            saem.append(d.get("id"))
+        else:
+            ficam.append(d)
+    if saem:
+        dados["itens"] = ficam
+        salvar(dados, arq)
+        log.info("📚 Catálogo automático: saíram %d sem anúncio há %d dias (%s)", len(saem), EXPIRA_DIAS,
+                 ", ".join(saem))
+    return saem
 
 
 def rodar(con, itens, agora=None, arq=None):
     """Análise do dia: acha os novos, grava no catalogo_auto.json e devolve [(ItemCatalogo, leituras)]."""
-    novos = candidatos(con, itens, agora, carregar(arq)["removidos"])
-    gravar(novos, arq)
-    return novos
+    novos = candidatos(con, itens, agora, carregar(arq)["removidos"], vagas(arq))
+    return gravar(novos, arq, agora)
 
 
 def remover(item_id, arq=None):

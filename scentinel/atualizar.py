@@ -15,6 +15,9 @@ from scentinel.config import PASTA_PROJETO
 
 SAIDA_PRA_REINICIAR = 3  # qualquer código != 0 faz o systemd religar (Restart=on-failure)
 _SEGREDOS = ("DISCORD_TOKEN", "ML_CLIENT_ID", "ML_CLIENT_SECRET")
+# versão que o bot está rodando (gravada ao ligar): o scentinel-update e o /atualizar comparam com ela, assim
+# código novo baixado mas não reiniciado (ex.: o Discord caiu no meio do /atualizar) não fica esquecido
+ARQ_VERSAO = PASTA_PROJETO / "dados" / "versao_rodando"
 
 
 @dataclass
@@ -45,7 +48,24 @@ def _ultima(saida):
     return linhas[-1][:300] if linhas else "sem saída"
 
 
-def atualizar(pasta=PASTA_PROJETO, rodar=_rodar):
+def registrar_versao(pasta=PASTA_PROJETO, rodar=_rodar, arq=None):
+    """Ao ligar: guarda o commit que está rodando (e devolve ele; None se o git não responder)."""
+    cod, saida = rodar(["git", "rev-parse", "HEAD"], pasta)
+    if cod:
+        return None
+    versao = saida.strip()
+    arq = arq or ARQ_VERSAO
+    try:
+        arq.parent.mkdir(parents=True, exist_ok=True)
+        arq.write_text(versao + "\n", encoding="utf-8")
+    except OSError:
+        pass
+    return versao
+
+
+def atualizar(pasta=PASTA_PROJETO, rodar=_rodar, rodando=None):
+    """rodando: commit que o bot está rodando agora (se for diferente do que está no disco, reinicia mesmo
+    sem nada novo no git pull)."""
     cod, antes = rodar(["git", "rev-parse", "HEAD"], pasta)
     if cod:
         return ResultadoAtualizacao(False, linhas=[f"❌ O git não respondeu: {_ultima(antes)}"])
@@ -55,29 +75,40 @@ def atualizar(pasta=PASTA_PROJETO, rodar=_rodar):
         return ResultadoAtualizacao(False, linhas=[f"❌ O git pull não deu: {_ultima(saida)}",
                                                    "Roda o `scentinel-update` no notebook e manda print pro Claude."])
     depois = rodar(["git", "rev-parse", "HEAD"], pasta)[1].strip()
+    base = antes
     if depois == antes:
-        return ResultadoAtualizacao(True, linhas=["✅ Já está na versão mais nova."])
-
-    linhas = ["📦 Novidades:"]
-    log = rodar(["git", "log", "--oneline", "--no-decorate", f"{antes}..{depois}"], pasta)[1].splitlines()
-    linhas += [f"• {x.split(' ', 1)[-1][:80]}" for x in log[:8]]
-    if len(log) > 8:
-        linhas.append(f"• ... e mais {len(log) - 8}")
+        if not rodando or rodando == depois:
+            return ResultadoAtualizacao(True, linhas=["✅ Já está na versão mais nova."])
+        base = rodando  # código novo já estava baixado, mas o bot não reiniciou: termina o serviço
+        linhas = ["📦 O código novo já estava baixado, mas o bot ainda rodava a versão antiga."]
+    else:
+        linhas = ["📦 Novidades:"]
+        log = rodar(["git", "log", "--oneline", "--no-decorate", f"{antes}..{depois}"], pasta)[1].splitlines()
+        linhas += [f"• {x.split(' ', 1)[-1][:80]}" for x in log[:8]]
+        if len(log) > 8:
+            linhas.append(f"• ... e mais {len(log) - 8}")
 
     def mudou(*arquivos):
-        return rodar(["git", "diff", "--quiet", antes, depois, "--", *arquivos], pasta)[0] != 0
+        # commit que não existe mais (histórico reescrito) dá erro no diff: conta como "mudou", por segurança
+        return rodar(["git", "diff", "--quiet", base, depois, "--", *arquivos], pasta)[0] != 0
 
     def desfazer(motivo):
-        rodar(["git", "reset", "-q", "--keep", antes], pasta)
+        if antes == depois:
+            return ResultadoAtualizacao(False, linhas=linhas + [motivo, "Não reiniciei: o bot segue como estava."])
+        cod, saida = rodar(["git", "reset", "-q", "--keep", antes], pasta)
+        if cod:
+            return ResultadoAtualizacao(False, linhas=linhas + [
+                motivo, f"⚠️ E não consegui voltar o código ({_ultima(saida)}). O bot segue rodando a versão de "
+                "antes, mas NÃO reinicia ele: roda o `scentinel-update` no notebook e manda print pro Claude."])
         return ResultadoAtualizacao(False, linhas=linhas + [motivo, "Voltei pro código de antes: o bot segue como estava."])
 
     if mudou("requirements.txt"):
-        cod, saida = rodar([sys.executable, "-m", "pip", "install", "-q", "-r", "requirements.txt"], pasta, 900)
+        cod, saida = rodar([sys.executable, "-m", "pip", "install", "-q", "-r", "requirements.txt"], pasta, 600)
         if cod:
             return desfazer(f"❌ Não deu pra instalar as dependências novas: {_ultima(saida)}")
         linhas.append("📥 Dependências novas instaladas")
 
-    cod, saida = rodar([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"], pasta, 900)
+    cod, saida = rodar([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"], pasta, 300)
     if cod:
         return desfazer(f"❌ Os testes falharam: {_ultima(saida)}")
     linhas.append(f"🧪 {_ultima(saida)}")

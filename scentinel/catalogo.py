@@ -60,8 +60,14 @@ _MARCAS_ESTILO = {
         "van cleef", "shakira", "paris hilton", "ariana grande",
     ],
 }
+def _texto_marca(texto):
+    """Só minúsculo, sem acento e sem pontuação: aqui não tira palavra nenhuma ('my perfumes' continua
+    'my perfumes', e não vira só 'my' como no normalizar)."""
+    return re.sub(r"[^a-z0-9]+", " ", sem_acento(str(texto or "")).lower()).strip()
+
+
 _MARCAS_ORDENADAS = sorted(
-    ((normalizar(m), estilo) for estilo, marcas in _MARCAS_ESTILO.items() for m in marcas),
+    ((_texto_marca(m), estilo) for estilo, marcas in _MARCAS_ESTILO.items() for m in marcas),
     key=lambda par: -len(par[0]),
 )
 
@@ -70,7 +76,7 @@ def estilo_da_marca(marca=None, titulo=None):
     """'designer' | 'nicho' | 'arabe' | 'nacional' | None. Olha o campo marca da loja primeiro, depois o
     título; a marca mais comprida que aparecer vence ('maison alhambra' antes de 'alhambra')."""
     for texto in (marca, titulo):
-        norm = f" {normalizar(texto)} " if texto else ""
+        norm = f" {_texto_marca(texto)} " if texto else ""
         if not norm.strip():
             continue
         for marca_norm, estilo in _MARCAS_ORDENADAS:

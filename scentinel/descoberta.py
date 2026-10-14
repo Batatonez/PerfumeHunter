@@ -32,6 +32,7 @@ PRECO_SUSPEITO = 0.35  # perfume do catálogo a menos de 35% do normal: quase ce
 TEMPO_MAX_AO_VIVO_S = 60  # /locate: loja que não respondeu nisso fica de fora da resposta
 PAUSA_LIMITE_MAX_HORAS = 2  # pausa por limite de velocidade (429) nunca passa disso
 INTERVALO_ALERTA_USUARIO = timedelta(hours=3)  # cada /alerta é pesquisado no máximo a cada 3 h
+ALERTA_REARMA_APOS = 2  # pesquisas seguidas acima do preço pra um /alerta poder avisar de novo
 
 
 _NAO_E_PERFUME = re.compile(
@@ -236,13 +237,16 @@ class Descoberta:
 
     def no_publico(self, achado, item=None, titulo=None):
         """O canal posta esse perfume? Com publico = "masculino": masculino e unissex entram;
-        feminino (pelo catálogo, pelo que a loja diz ou pelo título) fica de fora. Sem informação, entra."""
+        feminino (pelo catálogo, pelo que a loja diz ou pelo título) fica de fora. Sem informação, entra.
+        Item unissex ainda confere o anúncio: o "Ana Abiyedh Rouge Feminino" não entra pelo item unissex."""
         if self.cfg.publico != "masculino":
             return True
-        if item:
-            return self.item_no_publico(item)
+        if item and not self.item_no_publico(item):
+            return False
+        if item and item.publico == "masc":
+            return True  # o casar já barrou título feminino
         genero = getattr(achado, "genero", None) if achado else None
-        return (genero or catalogo.genero_do_texto(titulo or achado.titulo)) != "f"
+        return (genero or catalogo.genero_do_texto(titulo or (achado.titulo if achado else ""))) != "f"
 
     def preparar(self, achado, fonte, so_item=None):
         """Achado -> Candidato (ou None se não é perfume, é lixo, não tem tamanho, não é loja confiável...).
@@ -616,17 +620,23 @@ class Descoberta:
         return None
 
     async def avaliar_alerta(self, alerta, melhor, enviar, agora):
-        """Decide se avisa. Avisa quando chega no preço; de novo só se baixar mais; se o preço voltar a
-        subir acima do pedido, a próxima queda avisa outra vez. Devolve True se avisou."""
-        avisado = alerta["avisado_preco"]
+        """Decide se avisa. Avisa quando chega no preço; de novo só se baixar mais. Se o preço ficar acima
+        do pedido em 2 pesquisas seguidas (~6 h), a próxima queda avisa outra vez: uma pesquisa só acima
+        pode ser o anúncio barato que não veio naquela resposta do ML. Devolve True se avisou."""
+        avisado, acima = alerta["avisado_preco"], alerta.get("acima_seguidas") or 0
         avisou = False
         if melhor and melhor[0].preco <= alerta["preco_max"]:
+            acima = 0
             if avisado is None or melhor[0].preco < avisado - 0.01:
+                if db.alerta_usuario(self.con, alerta["id"]) is None:
+                    return False  # a pessoa removeu o alerta enquanto a pesquisa rodava
                 if await enviar(alerta, *melhor):
                     avisado, avisou = melhor[0].preco, True
         elif melhor:
-            avisado = None
-        db.marcar_alerta_usuario(self.con, alerta["id"], agora, avisado)
+            acima += 1
+            if acima >= ALERTA_REARMA_APOS:
+                avisado = None
+        db.marcar_alerta_usuario(self.con, alerta["id"], agora, avisado, acima)
         return avisou
 
     async def checar_alertas_usuarios(self, enviar, max_buscas=10):

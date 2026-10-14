@@ -862,7 +862,8 @@ def test_top_da_semana_usa_o_desconto_da_hora_do_post(amb):
 def test_alerta_pessoal_avisa_quando_chega_e_de_novo_so_se_baixar(amb):
     alerta = db.criar_alerta_usuario(amb.con, 77, "khamrah", 250)
     k = "https://a/khamrah"
-    for preco in (270, 240, 240, 230, 300, 245):
+    precos = (270, 240, 240, 230, 300, 230, 300, 300, 245)
+    for preco in precos:
         amb.a.programar("khamrah", achado("Perfume Lattafa Khamrah EDP 100ml", preco, "Loja A", k))
     avisos = []
 
@@ -870,13 +871,14 @@ def test_alerta_pessoal_avisa_quando_chega_e_de_novo_so_se_baixar(amb):
         avisos.append((al["usuario_id"], achado_.preco, ml))
         return True
 
-    for _ in range(6):
+    for _ in precos:
         rodar(amb.desc.checar_alertas_usuarios(enviar))
         rodar(amb.desc.checar_alertas_usuarios(enviar))  # antes de 3 h: nem pesquisa de novo
         amb.relogio.agora += timedelta(hours=3, minutes=1)
-    # 270 não; 240 avisa; 240 de novo não; 230 avisa (baixou); 300 rearma; 245 avisa
+    # 270 não; 240 avisa; 240 de novo não; 230 avisa (baixou); 300 uma vez só não rearma (230 de novo: nada);
+    # 300 duas vezes seguidas rearma; 245 avisa
     assert [p for _, p, _ in avisos] == [240, 230, 245] and avisos[0] == (77, 240, 100)
-    assert amb.a.chamadas.count("khamrah") == 6
+    assert amb.a.chamadas.count("khamrah") == len(precos)
     assert db.alerta_usuario(amb.con, alerta["id"])["avisado_preco"] == 245
 
 
@@ -901,11 +903,12 @@ def test_alerta_pessoal_respeita_tamanho_e_pausa(amb):
 
 
 def _semana_de_varreduras(amb, *paginas):
-    """Cada página é uma varredura; 7 h entre elas (preço igual só é gravado de novo depois de 6 h)."""
+    """Cada página é uma varredura; 13 h entre elas (preço igual só é gravado de novo depois de 6 h, e cai
+    em outro dia)."""
     for achados in paginas:
         amb.a.varredura = [pagina(*achados)]
         rodar(amb.desc.varredura(forcar=True))
-        amb.relogio.agora += timedelta(hours=7)
+        amb.relogio.agora += timedelta(hours=13)
 
 
 def test_catalogo_automatico_poe_masculino_visto_mais_de_uma_vez(amb, tmp_path):
@@ -957,3 +960,70 @@ def test_nome_do_titulo():
         "Club De Nuit Iconic"
     assert nome_do_titulo("Malbec Desodorante Colônia 100ml", "O Boticário") == "Malbec"
     assert nome_do_titulo("Perfume Lattafa EDP 100ml", "Lattafa") is None
+
+
+def test_alerta_pessoal_removido_durante_a_pesquisa_nao_marca(amb):
+    alerta = db.criar_alerta_usuario(amb.con, 77, "khamrah", 250)
+    amb.a.programar("khamrah", achado("Perfume Lattafa Khamrah EDP 100ml", 200, "Loja A", "https://a/k"))
+    original = amb.desc.buscar_ao_vivo
+
+    async def busca_lenta(*a, **k):
+        db.remover_alerta_usuario(amb.con, alerta["id"], 77)  # a pessoa tirou o alerta no meio da pesquisa
+        return await original(*a, **k)
+
+    amb.desc.buscar_ao_vivo = busca_lenta
+    avisos = []
+
+    async def enviar(*a):
+        avisos.append(a)
+        return True
+
+    rodar(amb.desc.checar_alertas_usuarios(enviar))
+    assert avisos == []
+
+
+def test_unissex_do_catalogo_nao_deixa_entrar_anuncio_feminino(amb):
+    """Item unissex (Khamrah) + anúncio que o ML diz ser feminino: não vai pro canal masculino."""
+    amb.a.varredura = [pagina(
+        achado("Perfume Lattafa Khamrah EDP 100ml Feminino", 150, "Loja A", "https://a/kfem", genero="f"),
+        achado("Perfume Lattafa Khamrah EDP 100ml", 180, "Loja A", "https://a/kuni", genero="u"),
+    )]
+    rodar(amb.desc.varredura(forcar=True))
+    assert db.anuncio_por_url(amb.con, "https://a/kfem") is None
+    assert db.anuncio_por_url(amb.con, "https://a/kuni")["catalogo_id"] == "khamrah"
+
+
+def test_catalogo_automatico_nao_cria_generico_do_que_ja_tem(amb, tmp_path):
+    """'Sauvage' sem concentração é ambíguo (EDT? EDP?): vira anúncio genérico, mas não pode virar item
+    do catálogo automático, que engoliria todas as versões com um preço misturado."""
+    from scentinel import autocatalogo
+
+    amb.cfg.descoberta.max_alertas_por_hora = 0
+    amb.desc.adicionar_itens([ITEM_SAUVAGE_EDT])  # EDT e EDP no catálogo: "Sauvage 100ml" fica ambíguo
+    s1 = achado("Perfume Dior Sauvage 100ml Masculino", 700, "Loja A", "https://a/s1", marca="Dior")
+    s2 = achado("Perfume Dior Sauvage 100ml Masculino", 760, "Loja A", "https://a/s2", marca="Dior")
+    k = achado("Perfume Lattafa Khamrah 100ml Unissex", 260, "Loja A", "https://a/k", marca="Lattafa")
+    k2 = achado("Perfume Lattafa Khamrah 100ml Unissex", 270, "Loja A", "https://a/k2", marca="Lattafa")
+    _semana_de_varreduras(amb, [s1, s2, k, k2], [s1, s2, k, k2])
+    assert db.anuncio_por_url(amb.con, "https://a/s1")["catalogo_id"].startswith("t:")  # genérico mesmo
+    assert autocatalogo.rodar(amb.con, amb.desc.itens, amb.relogio.agora, tmp_path / "auto.json") == []
+
+
+ITEM_SAUVAGE_EDT = ItemCatalogo("sauvage-edt", "Sauvage", "Dior", "EDT", [100], "masc", "designer", 720, 100, 560)
+
+
+def test_catalogo_automatico_tem_teto_e_expira(amb, tmp_path):
+    from scentinel import autocatalogo
+
+    arq = tmp_path / "auto.json"
+    item = ItemCatalogo("auto-x", "X Bravo", "Lattafa", "EDP", [100.0], "masc", "arabe", 200, 100.0, 156)
+    assert autocatalogo.gravar([(item, 2)], arq, amb.relogio.agora) == [(item, 2)]
+    assert autocatalogo.gravar([(item, 2)], arq, amb.relogio.agora) == []  # não duplica
+    assert autocatalogo.vagas(arq) == autocatalogo.MAX_POR_DIA
+    autocatalogo.salvar({"itens": [{"id": f"i{n}"} for n in range(autocatalogo.MAX_TOTAL)], "removidos": []}, arq)
+    assert autocatalogo.vagas(arq) == 0
+    # entrou há mais de 30 dias e ninguém mais vende: sai (sem ir pra lista de removidos)
+    autocatalogo.salvar({"itens": [], "removidos": []}, arq)
+    autocatalogo.gravar([(item, 2)], arq, amb.relogio.agora - timedelta(days=31))
+    assert autocatalogo.expirar(amb.con, amb.relogio.agora, arq) == ["auto-x"]
+    assert autocatalogo.carregar(arq) == {"itens": [], "removidos": []}

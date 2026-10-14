@@ -23,21 +23,45 @@ if ! git pull --ff-only -q; then
     exit 1
 fi
 DEPOIS=$(git rev-parse HEAD)
+# versão que o bot está rodando (ele grava ao ligar): código baixado mas não reiniciado não fica esquecido
+RODANDO=$(cat dados/versao_rodando 2>/dev/null || true)
 
-if [ "$ANTES" = "$DEPOIS" ]; then
+BASE=""
+if [ "$ANTES" != "$DEPOIS" ]; then
+    BASE="$ANTES"
+    echo "📦 Novidades:"
+    git log --oneline "$ANTES..$DEPOIS" | sed 's/^/   /'
+elif [ -n "$RODANDO" ] && [ "$RODANDO" != "$DEPOIS" ]; then
+    BASE="$RODANDO"
+    echo "📦 O código novo já estava baixado, mas o bot ainda roda a versão antiga: vou testar e reiniciar."
+else
     echo "✅ Já está na versão mais nova."
     if [ "$REINICIAR" = 0 ]; then
         echo "   (pra reiniciar mesmo assim: scentinel-update --reiniciar)"
         exit 0
     fi
-else
-    echo "📦 Novidades:"
-    git log --oneline "$ANTES..$DEPOIS" | sed 's/^/   /'
-    mudou() { ! git diff --quiet "$ANTES" "$DEPOIS" -- "$@"; }
+fi
+
+if [ -n "$BASE" ]; then
+    # commit que não existe mais dá erro no diff: conta como "mudou", por segurança
+    mudou() { ! git diff --quiet "$BASE" "$DEPOIS" -- "$@" 2>/dev/null; }
+    desfazer() {
+        echo "$1"
+        if [ "$ANTES" != "$DEPOIS" ]; then
+            if git reset -q --keep "$ANTES"; then
+                echo "   Voltei pro código de antes e NÃO reiniciei o bot. Manda print disso pro Claude."
+            else
+                echo "   ⚠️ E não consegui voltar o código. NÃO reiniciei o bot. Manda print disso pro Claude."
+            fi
+        else
+            echo "   NÃO reiniciei o bot (ele segue na versão que estava rodando). Manda print disso pro Claude."
+        fi
+        exit 1
+    }
 
     if mudou requirements.txt; then
         echo "📥 Instalando dependências novas..."
-        .venv/bin/pip install -q -r requirements.txt
+        .venv/bin/pip install -q -r requirements.txt || desfazer "❌ Não deu pra instalar as dependências novas."
     fi
 
     if grep -q "^playwright" requirements.txt; then
@@ -53,10 +77,7 @@ else
     echo "🧪 Rodando os testes..."
     if ! .venv/bin/python -m pytest -q -p no:cacheprovider >/tmp/scentinel-testes.log 2>&1; then
         tail -n 15 /tmp/scentinel-testes.log
-        git reset -q --keep "$ANTES"
-        echo "❌ Os testes falharam: voltei pro código de antes e NÃO reiniciei o bot."
-        echo "   Manda print disso pro Claude."
-        exit 1
+        desfazer "❌ Os testes falharam."
     fi
     echo "   $(tail -n 1 /tmp/scentinel-testes.log)"
 

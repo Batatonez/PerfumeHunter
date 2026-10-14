@@ -83,7 +83,7 @@ def test_comando_so_do_dono_e_reinicia():
 
     bot.close = fechar
     original = mod.atualizar
-    mod.atualizar = lambda: ResultadoAtualizacao(True, reiniciar=True, linhas=["📦 Novidades:"])
+    mod.atualizar = lambda rodando=None: ResultadoAtualizacao(True, reiniciar=True, linhas=["📦 Novidades:"])
     try:
         def interacao(uid):
             return SimpleNamespace(client=bot, user=SimpleNamespace(id=uid), edit_original_response=editar,
@@ -96,3 +96,70 @@ def test_comando_so_do_dono_e_reinicia():
         assert "Reiniciando" in edicoes[-1] and fechou and bot.reiniciar
     finally:
         mod.atualizar = original
+
+
+def test_codigo_baixado_mas_nao_reiniciado_reinicia_agora():
+    """O /atualizar anterior baixou o código e o Discord caiu antes de reiniciar: o próximo termina o serviço."""
+    sh = Shell(antes="bbb", depois="bbb")
+    res = atualizar(rodar=sh, rodando="aaa")
+    assert res.ok and res.reiniciar and "ainda rodava a versão antiga" in res.texto
+    assert ["git", "diff", "--quiet", "aaa", "bbb", "--", "requirements.txt"] in sh.comandos
+    # e com teste falhando: não reinicia nem mexe no git (o código já estava assim antes do pull)
+    sh = Shell(antes="bbb", depois="bbb", testes_ok=False)
+    res = atualizar(rodar=sh, rodando="aaa")
+    assert not res.reiniciar and not any(c[:2] == ["git", "reset"] for c in sh.comandos)
+
+
+def test_reset_que_falha_avisa():
+    class ShellResetRuim(Shell):
+        def __call__(self, cmd, pasta, tempo_s=180):
+            if cmd[:2] == ["git", "reset"]:
+                return 1, "error: Entry 'x' not uptodate. Cannot merge."
+            return super().__call__(cmd, pasta, tempo_s)
+
+    res = atualizar(rodar=ShellResetRuim(testes_ok=False))
+    assert not res.reiniciar and "não consegui voltar o código" in res.texto
+
+
+def test_registra_a_versao_rodando(tmp_path):
+    from scentinel.atualizar import registrar_versao
+
+    arq = tmp_path / "versao"
+    assert registrar_versao(rodar=Shell(antes="abc123"), arq=arq) == "abc123"
+    assert arq.read_text().strip() == "abc123"
+
+
+def test_reinicia_mesmo_se_o_discord_falhar_na_resposta():
+    import asyncio
+    from types import SimpleNamespace
+
+    import discord
+
+    from scentinel import atualizar as mod
+    from scentinel import config, db
+    from scentinel.atualizar import ResultadoAtualizacao
+    from scentinel.bot import BotScentinel, registrar_comandos
+
+    bot = BotScentinel(config.carregar_config(), config.Segredos("x", 1, 2, 42), db.conectar(":memory:"))
+    registrar_comandos(bot.tree)
+    fechou = []
+
+    async def defer(**kw):
+        pass
+
+    async def editar_falha(**kw):
+        raise discord.HTTPException(SimpleNamespace(status=401, reason="Unauthorized"), "Invalid Webhook Token")
+
+    async def fechar():
+        fechou.append(True)
+
+    bot.close = fechar
+    original = mod.atualizar
+    mod.atualizar = lambda rodando=None: ResultadoAtualizacao(True, reiniciar=True, linhas=["📦"])
+    try:
+        interacao = SimpleNamespace(client=bot, user=SimpleNamespace(id=42), edit_original_response=editar_falha,
+                                    response=SimpleNamespace(defer=defer))
+        asyncio.run(bot.tree.get_command("atualizar").callback(interacao))
+    finally:
+        mod.atualizar = original
+    assert fechou and bot.reiniciar

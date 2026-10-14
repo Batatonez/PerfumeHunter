@@ -151,8 +151,10 @@ class BotScentinel(discord.Client):
         self.segredos = segredos
         self.con = con
         self.reiniciar = False  # /atualizar: sai com erro de propósito pro systemd religar na versão nova
+        self.versao = None  # commit rodando (o rodar() preenche ao ligar)
         self._ping_cargo = {}  # cargo.id -> última vez que foi marcado
         self.trava_atualizar = asyncio.Lock()
+        self.trava_autocatalogo = asyncio.Lock()
         self.tree = app_commands.CommandTree(self)
         self.cacador = Cacador(con, cfg, enviar_alerta=self.enviar_alerta, enviar_aviso=self.enviar_aviso)
         self.loop_caca.change_interval(minutes=cfg.tick_minutos)
@@ -360,18 +362,26 @@ class BotScentinel(discord.Client):
         await self.wait_until_ready()
 
     async def rodar_autocatalogo(self, anunciar=True):
-        """Põe no catálogo os perfumes novos da semana e conta no canal. Devolve [(ItemCatalogo, leituras)]."""
+        """Põe no catálogo os perfumes novos da semana e conta no canal. Devolve [(ItemCatalogo, leituras)].
+        Uma análise por vez (o horário das 20:00 e o /catalogo rodar não se atropelam)."""
         d = self.descoberta
         if not d:
             return []
-        preparado = autocatalogo.preparar(self.con, d.itens)  # banco: na thread do bot
-        removidos = autocatalogo.carregar()["removidos"]
-        novos = await asyncio.to_thread(autocatalogo.escolher, preparado, list(d.itens), removidos)
-        if not novos:
-            log.info("📚 Catálogo automático: nada novo hoje")
-            return []
-        autocatalogo.gravar(novos)
-        d.adicionar_itens([item for item, _ in novos])
+        async with self.trava_autocatalogo:
+            for item_id in autocatalogo.expirar(self.con):  # quem sumiu do ML há 30 dias sai
+                d.remover_item(item_id)
+            vagas = autocatalogo.vagas()
+            if not vagas:
+                log.info("📚 Catálogo automático: cheio (%d itens)", autocatalogo.MAX_TOTAL)
+                return []
+            preparado = autocatalogo.preparar(self.con, d.itens)  # banco: na thread do bot
+            removidos = autocatalogo.carregar()["removidos"]
+            novos = await asyncio.to_thread(autocatalogo.escolher, preparado, list(d.itens), removidos, vagas)
+            novos = autocatalogo.gravar(novos)
+            if not novos:
+                log.info("📚 Catálogo automático: nada novo hoje")
+                return []
+            d.adicionar_itens([item for item, _ in novos])
         if anunciar:
             canal = await self.canal()
             await canal.send(embed=discord.Embed.from_dict(formato.embed_catalogo_novo([i for i, _ in novos])),
@@ -585,6 +595,14 @@ async def autocomplete_catalogo_auto(interaction, atual):
             continue
         escolhas.append(app_commands.Choice(name=rotulo[:100], value=i.id[:100]))
     return escolhas[:25]
+
+
+async def _editar_sem_falhar(interaction, texto):
+    """Resposta que pode falhar sem atrapalhar o resto (ex.: o /atualizar demorou mais que o Discord espera)."""
+    try:
+        await interaction.edit_original_response(content=texto)
+    except discord.HTTPException:
+        log.warning("não deu pra editar a resposta: %s", texto[:200])
 
 
 ESCOLHAS_ESTILO = [app_commands.Choice(name=rotulo, value=valor) for valor, rotulo in catalogo.CATEGORIAS.items()]
@@ -1043,16 +1061,16 @@ def registrar_comandos(tree):
             return
         await interaction.response.defer(thinking=True, ephemeral=True)
         async with bot.trava_atualizar:
-            await interaction.edit_original_response(content="🔄 Baixando e testando a versão nova (leva ~1 min)...")
-            res = await asyncio.to_thread(atualizar.atualizar)
-            texto = res.texto
-            if res.reiniciar:
-                texto += "\n🔄 Reiniciando... volto em ~1 min."
-            await interaction.edit_original_response(content=formato.cortar(texto, 1900))
-            if res.reiniciar:
-                log.info("🔄 /atualizar: reiniciando pra versão nova")
-                bot.reiniciar = True
-                await bot.close()
+            await _editar_sem_falhar(interaction, "🔄 Baixando e testando a versão nova (leva ~1 min)...")
+            res = await asyncio.to_thread(atualizar.atualizar, rodando=bot.versao)
+            try:
+                texto = res.texto + ("\n🔄 Reiniciando... volto em ~1 min." if res.reiniciar else "")
+                await _editar_sem_falhar(interaction, formato.cortar(texto, 1900))
+            finally:
+                if res.reiniciar:  # mesmo se o Discord falhar na resposta: código novo não fica parado no disco
+                    log.info("🔄 /atualizar: reiniciando pra versão nova")
+                    bot.reiniciar = True
+                    await bot.close()
 
     @tree.command(name="checar", description="Força uma rodada de checagem agora (só o dono)")
     async def checar(interaction: discord.Interaction):
@@ -1114,6 +1132,7 @@ def rodar():
     segredos = config.carregar_segredos()
     con = db.conectar(config.ARQ_DB)
     bot = BotScentinel(cfg, segredos, con)
+    bot.versao = atualizar.registrar_versao()
     bot.run(segredos.token, log_handler=None)
     if bot.reiniciar:
         # saída com erro de propósito: o systemd (Restart=on-failure) liga de novo, já com o código novo

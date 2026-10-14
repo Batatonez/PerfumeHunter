@@ -10,7 +10,10 @@ def ml_sem_login(monkeypatch, tmp_path):
     from scentinel import autocatalogo
     from scentinel.fontes import mercadolivre as ml
 
+    from scentinel import atualizar
+
     monkeypatch.setattr(autocatalogo, "ARQ_AUTO", tmp_path / "catalogo_auto_de_teste.json")
+    monkeypatch.setattr(atualizar, "ARQ_VERSAO", tmp_path / "versao_rodando_de_teste")
     monkeypatch.setattr(ml, "ARQ_TOKEN", tmp_path / "ml_token_de_teste.json")
     monkeypatch.setattr(ml, "_respiro", lambda: None)
     monkeypatch.setattr(ml, "INTERVALO_API_S", 0)

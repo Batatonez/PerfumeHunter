@@ -1252,6 +1252,7 @@ categoria = "designer"
 [[perfumes]]
 nome = "Le Beau Le Parfum"
 marca = "Jean Paul Gaultier"
+concentracao = "EDP"
 ml = [75, 125]
 ml_ref = 125
 preco_normal = 720

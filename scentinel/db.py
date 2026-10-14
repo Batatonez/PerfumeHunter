@@ -77,7 +77,8 @@ CREATE TABLE IF NOT EXISTS alertas_usuario (
     ml             REAL,
     criado_em      TEXT NOT NULL,
     ultima_busca   TEXT,
-    avisado_preco  REAL                 -- preço do último aviso; NULL = a próxima vez que chegar avisa
+    avisado_preco  REAL,                -- preço do último aviso; NULL = a próxima vez que chegar avisa
+    acima_seguidas INTEGER NOT NULL DEFAULT 0  -- pesquisas seguidas com o preço acima do pedido
 );
 CREATE INDEX IF NOT EXISTS idx_alertas_usuario ON alertas_usuario(usuario_id);
 """
@@ -107,6 +108,9 @@ MIGRACOES = {
     },
     "alertas": {
         "pct": "REAL",                               # % OFF na hora do post (pro 🏆 Top da semana)
+    },
+    "alertas_usuario": {
+        "acima_seguidas": "INTEGER NOT NULL DEFAULT 0",
     },
 }
 
@@ -514,7 +518,7 @@ def alertas_usuario_vencidos(con, antes_de, limite):
     )]
 
 
-def marcar_alerta_usuario(con, alerta_id, quando, avisado_preco):
-    con.execute("UPDATE alertas_usuario SET ultima_busca = ?, avisado_preco = ? WHERE id = ?",
-                (para_texto(quando), avisado_preco, alerta_id))
+def marcar_alerta_usuario(con, alerta_id, quando, avisado_preco, acima_seguidas=0):
+    con.execute("UPDATE alertas_usuario SET ultima_busca = ?, avisado_preco = ?, acima_seguidas = ? WHERE id = ?",
+                (para_texto(quando), avisado_preco, acima_seguidas, alerta_id))
     con.commit()

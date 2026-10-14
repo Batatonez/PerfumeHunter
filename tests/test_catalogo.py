@@ -114,3 +114,8 @@ def test_estilo_pela_marca():
     assert estilo_da_marca("Viktor&Rolf") == "designer"
     assert estilo_da_marca("Marca Desconhecida", "Perfume Xyz Masculino 100ml") is None
     assert estilo_da_marca(None, "Perfume Natural de Lavanda 100ml") is None  # 'natura' não casa com 'natural'
+    # marca de várias palavras não vira uma palavra solta ('my perfumes' não é 'my'; 'le labo' não é 'labo')
+    assert estilo_da_marca("Xpto", "Perfume My Way Xpto Masculino 100ml") is None
+    assert estilo_da_marca("My Perfumes") == "arabe" and estilo_da_marca("Le Labo") == "nicho"
+    assert estilo_da_marca(None, "Perfume Labo Xyz 100ml") is None
+    assert estilo_da_marca("Bond No. 9") == "nicho" and estilo_da_marca("Penhaligon's") == "nicho"
