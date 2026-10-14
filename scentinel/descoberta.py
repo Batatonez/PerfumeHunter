@@ -61,6 +61,7 @@ class ResultadoAoVivo:
     ofertas: list = field(default_factory=list)  # [(Achado, ml, pct_vs_de)] do mais barato pro mais caro
     lojas_ok: list = field(default_factory=list)
     lojas_falha: list = field(default_factory=list)
+    detalhes: list = field(default_factory=list)  # [(loja, o que ela respondeu)] pra explicar quando não acha
 
 
 class Descoberta:
@@ -524,6 +525,7 @@ class Descoberta:
                 resultado.lojas_falha.append(fonte.nome)
                 continue
             resultado.lojas_ok.append(fonte.nome)
+            antes = len(ofertas)
             for a in res.achados:
                 if not a.disponivel or not self._casa_consulta(a, palavras, marca_norm):
                     continue
@@ -533,6 +535,12 @@ class Descoberta:
                 pct = (a.preco_de - a.preco) / a.preco_de * 100 if a.preco_de and a.preco_de > a.preco else 0
                 ofertas.append((a, ml, pct))
                 candidatos.append((a, fonte))
+            if len(ofertas) == antes:  # essa loja não trouxe nada que sirva: guarda o porquê
+                outros = sum(1 for a in res.achados if a.disponivel)
+                motivo = res.detalhe or ("nenhum resultado" if not res.achados else "")
+                if outros:
+                    motivo += ("; " if motivo else "") + f"{outros} anúncio(s) com outro nome/tamanho"
+                resultado.detalhes.append((fonte.nome, motivo))
         log.info("/locate %r: %d oferta(s) de %s; casaram %d", consulta,
                  sum(len(r.achados) for r in respostas if isinstance(r, ResultadoBusca)),
                  ", ".join(resultado.lojas_ok) or "nenhuma loja", len(ofertas))

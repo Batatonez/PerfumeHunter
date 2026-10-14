@@ -593,3 +593,17 @@ def test_despausar(amb):
     assert amb.desc.pausada(amb.a)
     amb.desc.despausar()
     assert not amb.desc.pausada(amb.a)
+
+
+def test_locate_explica_por_que_nao_achou(amb):
+    from scentinel.formato import embed_ao_vivo
+
+    amb.a.respostas["queening"] = [ResultadoBusca(detalhe="nenhum produto com esse nome no catálogo do ML")]
+    amb.b.programar("queening", achado("Perfume Outra Coisa Masculino 100ml", 99, "Loja B", "https://b/x"))
+    res = rodar(amb.desc.buscar_ao_vivo("queening"))
+    assert res.ofertas == []
+    assert res.detalhes == [("Loja A", "nenhum produto com esse nome no catálogo do ML"),
+                            ("Loja B", "1 anúncio(s) com outro nome/tamanho")]
+    texto = embed_ao_vivo(res)["description"]
+    assert "• Loja A: nenhum produto com esse nome no catálogo do ML" in texto
+    assert "fora do catálogo" in texto  # explica o limite da API do ML

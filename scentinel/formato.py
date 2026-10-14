@@ -225,10 +225,17 @@ def _linha_oferta_viva(achado, ml, pct):
 def embed_ao_vivo(res, max_linhas=8):
     if not res.ofertas:
         onde = ", ".join(res.lojas_ok) or "nenhuma loja respondeu"
+        linhas = [f"Não achei **{res.consulta}** em nenhuma loja agora ({onde}). Confere o nome? 🐈‍⬛"]
+        for loja, motivo in getattr(res, "detalhes", None) or []:
+            if motivo:
+                linhas.append(f"• {loja}: {motivo}")
+        if any("catálogo do ML" in (m or "") for _, m in getattr(res, "detalhes", None) or []):
+            linhas.append("_O bot só enxerga os produtos do catálogo do ML: anúncio fora do catálogo "
+                          "a API do ML não mostra mais._")
         return {
             "title": f"🔎 {res.consulta}",
             "color": COR_NEUTRA,
-            "description": f"Não achei **{res.consulta}** em nenhuma loja agora ({onde}). Confere o nome? 🐈‍⬛",
+            "description": cortar("\n".join(linhas)),
         }
     primeiro, ml, pct = res.ofertas[0]
     linhas = [

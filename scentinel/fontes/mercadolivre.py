@@ -12,6 +12,7 @@ Perfume falsificado é comum no ML: por padrão só entra anúncio de LOJA OFICI
 
 import json
 import logging
+from collections import Counter
 import os
 import random
 import re
@@ -336,6 +337,22 @@ def reputacao_boa(dados):
     return str(rep.get("level_id") or "").startswith("5") and rep.get("power_seller_status") in ("gold", "platinum")
 
 
+def detalhe_catalogo(total, situacao):
+    """Explica em português o que o catálogo do ML respondeu (pro /locate que não achou nada)."""
+    if not total:
+        return "nenhum produto com esse nome no catálogo do ML"
+    partes = []
+    if situacao.get("com_vendedor"):
+        partes.append(f"{situacao['com_vendedor']} com vendedor")
+    if situacao.get("sem_vendedor"):
+        partes.append(f"{situacao['sem_vendedor']} sem ninguém vendendo agora")
+    if situacao.get("escondido"):
+        partes.append(f"{situacao['escondido']} com os vendedores escondidos pelo ML")
+    if situacao.get("lixo"):
+        partes.append(f"{situacao['lixo']} kit/decant/amostra")
+    return f"catálogo do ML: {total} produto(s)" + (f" ({', '.join(partes)})" if partes else "")
+
+
 def _grave(erro):
     """Erro que vale pra loja toda (login, recusa, limite): para a tarefa na hora."""
     return any(c in (erro or "") for c in ("401", "403", "429"))
@@ -457,9 +474,11 @@ class FonteMercadoLivre:
             self._guardar(produto)
         return produto, None
 
-    def _ofertas(self, produto_id, token):
+    def _ofertas(self, produto_id, token, situacao=None):
         """Todos os vendedores do produto (oficiais ou não), do mais barato pro mais caro.
-        Só olha as páginas seguintes se a 1ª não tiver loja oficial."""
+        Só olha as páginas seguintes se a 1ª não tiver loja oficial.
+        situacao: Counter opcional que ganha 'sem_vendedor', 'escondido' ou 'com_vendedor' (pro /locate explicar)."""
+        situacao = situacao if situacao is not None else Counter()
         ofertas, offset = [], 0
         for pagina in range(MAX_PAGINAS_OFERTAS):
             if pagina:
@@ -467,12 +486,14 @@ class FonteMercadoLivre:
             dados, erro, _ = self._get(f"/products/{produto_id}/items", token, {"offset": offset} if offset else None)
             if erro:
                 if "404" in erro:  # "No winners found": ninguém vendendo agora
-                    break
+                    situacao["com_vendedor" if ofertas else "sem_vendedor"] += 1
+                    return sorted(ofertas, key=lambda o: o.preco), None
                 if "403" in erro:
                     # o ML esconde os vendedores de ALGUNS produtos: pula só esse (não é a loja toda bloqueada;
                     # bloqueio de verdade aparece no /products/search)
                     log.info("ML: vendedores de %s fechados (%s); pulando esse produto", produto_id, erro)
-                    break
+                    situacao["com_vendedor" if ofertas else "escondido"] += 1
+                    return sorted(ofertas, key=lambda o: o.preco), None
                 return ofertas, erro
             dados = _obj(dados)
             resultados = _lista(dados.get("results"))
@@ -481,16 +502,17 @@ class FonteMercadoLivre:
             total = _obj(dados.get("paging")).get("total")
             if any(o.oficial for o in ofertas) or not resultados or not isinstance(total, int) or offset >= total:
                 break
+        situacao["com_vendedor" if ofertas else "sem_vendedor"] += 1
         return sorted(ofertas, key=lambda o: o.preco), None
 
-    def _achados_dos_produtos(self, produtos, token):
+    def _achados_dos_produtos(self, produtos, token, situacao=None):
         """Melhor oferta de cada produto. Para no primeiro erro grave (login/recusa/limite) ou depois de
         MAX_FALHAS_DE_REDE erros de rede seguidos, pra não segurar a fila de requisições do bot."""
         achados, falhas = [], 0
         for i, produto in enumerate(produtos):
             if i:
                 _respiro()
-            ofertas, erro = self._ofertas(produto.id, token)
+            ofertas, erro = self._ofertas(produto.id, token, situacao)
             if erro:
                 falhas += 1
                 if _grave(erro) or falhas >= MAX_FALHAS_DE_REDE:
@@ -547,10 +569,15 @@ class FonteMercadoLivre:
         dados, erro, _ = self._get("/products/search", token, params)
         if erro:
             return self._resultado_de_erro(erro, sem_login=not _tem_token_salvo())
+        brutos = _lista(_obj(dados).get("results"))
+        situacao = Counter()
         produtos = []
-        for bruto in _lista(_obj(dados).get("results")):
+        for bruto in brutos:
             produto = produto_do_catalogo(bruto)
-            if not produto or catalogo.e_lixo(produto.nome):
+            if not produto:
+                continue
+            if catalogo.e_lixo(produto.nome):
+                situacao["lixo"] += 1
                 continue
             self._guardar(produto)
             if so_publico and self._so_masculino and produto.genero == "f":
@@ -559,10 +586,13 @@ class FonteMercadoLivre:
         if self._so_masculino:  # feminino vai pro fim: não toma a vaga do masculino (o /locate ainda vê)
             produtos.sort(key=lambda p: p.genero == "f")
         produtos = produtos[: self.max_produtos]
-        if not produtos:
-            return ResultadoBusca()
-        _respiro()
-        return self._achados_dos_produtos(produtos, token)
+        if produtos:
+            _respiro()
+            res = self._achados_dos_produtos(produtos, token, situacao)
+        else:
+            res = ResultadoBusca()
+        res.detalhe = detalhe_catalogo(len(brutos), situacao)
+        return res
 
     def sabe_reler(self, achado):
         return self.modo != "html" and _tem_token_salvo() and produto_do_link(achado.url) is not None

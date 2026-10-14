@@ -38,6 +38,7 @@ class ResultadoBusca:
     bloqueado: bool = False
     pulado: bool = False  # a tarefa não chegou a falar com a loja (nada a contar, nem sucesso nem erro)
     pausa_horas: float | None = None  # bloqueio curto (ex.: limite de velocidade da API): pausa menor e sem aviso
+    detalhe: str | None = None  # o que a loja respondeu, em português (o /locate mostra quando não acha nada)
 
 
 def baixar_json(url, params=None, headers=None, timeout=coleta.TIMEOUT_S):

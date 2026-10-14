@@ -743,3 +743,25 @@ def test_ml_produto_fechado_nao_bloqueia_a_loja(monkeypatch, tmp_path):
     }))
     res = ml.FonteMercadoLivre().buscar("queening")
     assert not res.bloqueado and not res.erro and res.achados == []
+
+
+def test_ml_detalhe_do_catalogo(monkeypatch, tmp_path):
+    from collections import Counter
+
+    assert ml.detalhe_catalogo(0, Counter()) == "nenhum produto com esse nome no catálogo do ML"
+    assert ml.detalhe_catalogo(4, Counter(sem_vendedor=1, escondido=2, lixo=1)) == (
+        "catálogo do ML: 4 produto(s) (1 sem ninguém vendendo agora, 2 com os vendedores escondidos pelo ML, "
+        "1 kit/decant/amostra)")
+    _com_login(monkeypatch, tmp_path)
+    busca = {"results": [_produto_bruto("MLB1", "Perfume Queening Mind Games Extrait 100ml"),
+                         _produto_bruto("MLB2", "Decant Queening Mind Games 10ml"),
+                         _produto_bruto("MLB3", "Perfume Queening Mind Games Extrait 50ml", volume="50 mL")]}
+    monkeypatch.setattr(ml, "baixar_json", _api_falsa({
+        "/products/search": (busca, None, False),
+        "/products/MLB3/items": (None, "bloqueado (HTTP 403)", True),
+        # MLB1: 404 (ninguém vendendo)
+    }))
+    res = ml.FonteMercadoLivre().buscar("queening")
+    assert res.achados == [] and not res.erro
+    assert res.detalhe == ("catálogo do ML: 3 produto(s) (1 sem ninguém vendendo agora, "
+                           "1 com os vendedores escondidos pelo ML, 1 kit/decant/amostra)")
