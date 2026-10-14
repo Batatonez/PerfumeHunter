@@ -33,7 +33,7 @@ def test_embed_alerta_igual_ao_mock():
     assert e["color"] == 0xE67E22
     d = e["description"]
     assert "**Sauvage EDP 100ml** · Loja X" in d
-    assert "R$ 659,90" in d and "(ref. R$ 999,00)" in d and "R$ 6,60/ml" in d
+    assert "R$ 659,90" in d and "**34% OFF** (ref. R$ 999,00)" in d and "R$ 6,60/ml" in d
     assert "⚡ Pix: R$ 626,90" in d
     assert "🏆 RECORDE" in d
     assert e["footer"]["text"] == "Checado em 11/10 15:30"
@@ -46,13 +46,28 @@ def test_embed_alerta_preco_da_loja_e_alvo():
     assert "🎯 Bateu seu alvo de R$ 750,00" in e["description"]
 
 
+def test_porcentagem_off_em_todo_post():
+    """Todo post com referência mostra quantos % OFF (no título e na linha do preço); 0% não aparece."""
+    from scentinel.formato import embed_vitrine
+
+    alvo = oferta_exemplo(avaliacao=Avaliacao(700, 760, "catalogo", 7.9, None), bateu_alvo=True, alvo=750,
+                          origem="descoberta")
+    e = embed_alerta(alvo)
+    assert e["title"] == "💸 PREÇO BOM — 8% OFF" and "**8% OFF**" in e["description"]
+    assert embed_alerta(oferta_exemplo(avaliacao=Avaliacao(700, 720, "historico", 2.8, None)))["title"] == "🏷️ 3% OFF"
+    pouco = oferta_exemplo(avaliacao=Avaliacao(700, 703, "loja", 0.4, None))
+    assert embed_vitrine(pouco)["title"] == "🛍️ VITRINE — achado do Scentinel"
+    assert "OFF" not in embed_vitrine(pouco)["description"]
+    assert embed_vitrine(oferta_exemplo(avaliacao=Avaliacao(700, 730, "loja", 4.1, None)))["title"] == "🛍️ VITRINE — 4% OFF"
+
+
 def test_embed_locate():
     melhor = oferta_exemplo()
     outro = oferta_exemplo(anuncio_id=2, loja="Loja A", avaliacao=Avaliacao(880, 1000, "historico", 12, None))
     barato = oferta_exemplo(anuncio_id=3, loja="Loja C", ml=200, preco=1080)
     e = embed_locate(melhor, True, [outro], barato, ["Sauvage EDT"])
     assert e["title"] == "🏆 Maior promo: Sauvage EDP 100ml — Loja X"
-    assert "**Outros:** Loja A −12%" in e["description"]
+    assert "**Outros:** Loja A 12% OFF" in e["description"]
     assert "Menor R$/ml:** Sauvage EDP 200ml — Loja C (R$ 5,40/ml)" in e["description"]
     assert e["footer"]["text"].startswith("também achei: Sauvage EDT")
 
@@ -307,7 +322,7 @@ def test_send_so_admin():
     registrar_comandos(bot.tree)
     cmd = bot.tree.get_command("send")
     assert cmd.default_permissions.administrator
-    respostas, seguintes, pedidos = [], [], []
+    respostas, seguintes, pedidos, filtros = [], [], [], []
 
     async def responder(texto, **kw):
         respostas.append(texto)
@@ -318,8 +333,9 @@ def test_send_so_admin():
     async def seguir(texto, **kw):
         seguintes.append(texto)
 
-    async def mandar_varias(n, enviar):
+    async def mandar_varias(n, enviar, filtro=None):
         pedidos.append(n)
+        filtros.append(filtro)
         return 2
 
     bot.descoberta.mandar_varias = mandar_varias
@@ -332,7 +348,27 @@ def test_send_so_admin():
     asyncio.run(cmd.callback(interacao(False), numero=5))
     assert "Só admin" in respostas[-1] and pedidos == []
     asyncio.run(cmd.callback(interacao(True), numero=5))
-    assert pedidos == [5] and seguintes[-1].startswith("🛍️ Mandei 2 de 5")
+    assert pedidos == [5] and seguintes[-1].startswith("🛍️ Mandei 2 de 5") and filtros == [None]
+    # com estilo: só árabe
+    from discord import app_commands
+
+    asyncio.run(cmd.callback(interacao(True), numero=3, estilo=app_commands.Choice(name="🕌 Árabe", value="arabe"),
+                             ate=300.0))
+    assert filtros[-1] is not None and "🕌 Árabe, até R$ 300,00" in seguintes[-1]
+    assert {c.value for c in next(p for p in cmd.parameters if p.name == "estilo").choices} == {
+        "designer", "nicho", "arabe", "nacional", "outros"}
+
+
+def test_filtro_do_send():
+    from scentinel.descoberta import Descoberta
+
+    arabe = oferta_exemplo(estilo="arabe", preco=250, avaliacao=Avaliacao(250, 300, "catalogo", 16.7, None))
+    sem_marca = oferta_exemplo(estilo=None, preco=150, avaliacao=Avaliacao(150, None, None, 0, None))
+    assert Descoberta.filtro_oferta("arabe")(arabe) and not Descoberta.filtro_oferta("arabe")(sem_marca)
+    assert Descoberta.filtro_oferta("outros")(sem_marca) and not Descoberta.filtro_oferta("outros")(arabe)
+    assert not Descoberta.filtro_oferta(preco_max=200)(arabe) and Descoberta.filtro_oferta(preco_max=200)(sem_marca)
+    assert Descoberta.filtro_oferta(desconto_min=15)(arabe) and not Descoberta.filtro_oferta(desconto_min=20)(arabe)
+    assert not Descoberta.filtro_oferta(desconto_min=5)(sem_marca)
 
 
 def test_locate_nunca_usa_preco_guardado():

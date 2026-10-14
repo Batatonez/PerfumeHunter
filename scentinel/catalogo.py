@@ -21,6 +21,62 @@ CATEGORIAS = {
     "arabe": "🕌 Árabe",
     "nacional": "🇧🇷 Nacional",
 }
+OUTROS = "outros"  # marca que o bot não conhece (o /send deixa escolher esses também)
+
+# Estilo pela marca: perfume fora do catálogo também ganha estilo (/send, cargos, catálogo automático).
+_MARCAS_ESTILO = {
+    "arabe": [
+        "lattafa", "afnan", "armaf", "al haramain", "rasasi", "ajmal", "maison alhambra", "alhambra",
+        "swiss arabian", "french avenue", "fragrance world", "rayhaan", "paris corner", "nabeel", "arabiyat",
+        "zimaya", "ard al zaafaran", "khadlaj", "asdaaf", "al wataniah", "orientica", "emper", "gulf orchid",
+        "my perfumes", "arabian oud", "riiffs", "ahmed al maghribi", "nusuk", "anfar", "al rehab", "bharara",
+        "milestone", "sterling", "pendora", "aurora scents", "ajyad", "dumont",
+    ],
+    "nicho": [
+        "creed", "parfums de marly", "maison francis kurkdjian", "francis kurkdjian", "xerjoff", "amouage",
+        "initio", "nishane", "tom ford", "byredo", "le labo", "diptyque", "kilian", "by kilian", "roja",
+        "montale", "mancera", "memo paris", "frederic malle", "serge lutens", "penhaligon s", "acqua di parma",
+        "louis vuitton", "clive christian", "ex nihilo", "bdk", "juliette has a gun", "orto parisi", "nasomatto",
+        "tiziana terenzi", "bond no 9", "zoologist", "imaginary authors", "profumum", "sospiro",
+        "escentric molecules", "vilhelm", "goldfield banks", "ormonde jayne", "histoires de parfums",
+        "etat libre d orange", "maison crivelli", "marc antoine barrois", "zarkoperfume", "matiere premiere",
+        "simone andreoli", "stephane humbert lucas", "thameen", "boadicea", "carner barcelona", "mind games",
+    ],
+    "nacional": [
+        "boticario", "o boticario", "natura", "eudora", "avon", "jequiti", "mahogany", "phebo", "granado",
+        "agua de cheiro", "ciclo cosmeticos", "hinode", "racco", "lacqua di fiori", "up essencia", "wepink",
+        "fiorucci", "quem disse berenice",
+    ],
+    "designer": [
+        "dior", "christian dior", "chanel", "yves saint laurent", "ysl", "giorgio armani", "armani", "prada",
+        "paco rabanne", "rabanne", "carolina herrera", "jean paul gaultier", "versace", "azzaro", "hugo boss",
+        "boss", "montblanc", "bvlgari", "bulgari", "calvin klein", "dolce gabbana", "givenchy", "valentino",
+        "burberry", "hermes", "ralph lauren", "lacoste", "diesel", "antonio banderas", "banderas", "davidoff",
+        "mercedes benz", "ferrari", "tommy hilfiger", "kenzo", "issey miyake", "guerlain", "lancome", "mugler",
+        "viktor rolf", "jimmy choo", "coach", "michael kors", "abercrombie", "hollister", "salvatore ferragamo",
+        "ferragamo", "cartier", "narciso rodriguez", "moschino", "benetton", "bentley", "joop", "nautica",
+        "maison margiela", "guess", "jaguar", "police", "zara", "kenneth cole", "adidas", "lomani", "emporio armani",
+        "dsquared2", "dsquared", "gucci", "loewe", "chloe", "marc jacobs", "elie saab", "paco", "boucheron",
+        "van cleef", "shakira", "paris hilton", "ariana grande",
+    ],
+}
+_MARCAS_ORDENADAS = sorted(
+    ((normalizar(m), estilo) for estilo, marcas in _MARCAS_ESTILO.items() for m in marcas),
+    key=lambda par: -len(par[0]),
+)
+
+
+def estilo_da_marca(marca=None, titulo=None):
+    """'designer' | 'nicho' | 'arabe' | 'nacional' | None. Olha o campo marca da loja primeiro, depois o
+    título; a marca mais comprida que aparecer vence ('maison alhambra' antes de 'alhambra')."""
+    for texto in (marca, titulo):
+        norm = f" {normalizar(texto)} " if texto else ""
+        if not norm.strip():
+            continue
+        for marca_norm, estilo in _MARCAS_ORDENADAS:
+            if marca_norm and f" {marca_norm} " in norm:
+                return estilo
+    return None
 
 # Anúncio que não é o frasco do perfume (ou é falsificação). Regex sobre o texto normalizado.
 _LIXO = [

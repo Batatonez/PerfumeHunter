@@ -198,7 +198,8 @@ class Oferta:
     bateu_alvo: bool = False
     quando: object = None  # datetime UTC da leitura
     origem: str = "manual"  # 'manual' (/add) ou 'descoberta' (busca automática)
-    categoria: str | None = None  # rótulo do catálogo, ex.: '🕌 Árabe'
+    categoria: str | None = None  # rótulo do estilo, ex.: '🕌 Árabe'
+    estilo: str | None = None  # 'designer' | 'nicho' | 'arabe' | 'nacional' | None (marca desconhecida)
     oficial: bool = False  # loja oficial / vendido pela própria loja
     preco_de: float | None = None  # o riscado da loja
     imagem: str | None = None

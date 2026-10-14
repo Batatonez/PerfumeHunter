@@ -101,3 +101,16 @@ def test_referencia_escala_com_tamanho():
     assert edp.referencia_para(200) < 850 * 2  # frasco grande sai mais barato por ml
     assert edp.preco_bom_para(100) == 640
     assert edp.nome_exibicao == "Sauvage EDP"
+
+
+def test_estilo_pela_marca():
+    from scentinel.catalogo import estilo_da_marca
+
+    assert estilo_da_marca("Lattafa") == "arabe"
+    assert estilo_da_marca(None, "Perfume Maison Alhambra Kismet Masculino EDP 100ml") == "arabe"
+    assert estilo_da_marca("O Boticário") == "nacional"
+    assert estilo_da_marca("Christian Dior") == "designer"
+    assert estilo_da_marca("Parfums de Marly") == "nicho"
+    assert estilo_da_marca("Viktor&Rolf") == "designer"
+    assert estilo_da_marca("Marca Desconhecida", "Perfume Xyz Masculino 100ml") is None
+    assert estilo_da_marca(None, "Perfume Natural de Lavanda 100ml") is None  # 'natura' não casa com 'natural'

@@ -631,16 +631,17 @@ class Descoberta:
                 return oferta
         return None
 
-    async def mandar_varias(self, quantidade, enviar, pausa=None):
+    async def mandar_varias(self, quantidade, enviar, pausa=None, filtro=None):
         """/send N: posta até N ofertas agora (novas primeiro; acabando, as que já saíram, da mais antiga pra
-        mais nova). Nunca o mesmo perfume duas vezes no mesmo lote. Devolve quantas foram."""
+        mais nova). Nunca o mesmo perfume duas vezes no mesmo lote. filtro(oferta) -> bool escolhe quais
+        (estilo, preço, desconto). Devolve quantas foram."""
         agora = self.cacador.relogio()
         novas, repetidas = self.ranking_vitrine(agora)
         enviadas, perfumes = 0, set()
         for oferta, chave, _ in novas + repetidas:
             if enviadas >= quantidade:
                 break
-            if chave in perfumes:
+            if chave in perfumes or (filtro and not filtro(oferta)):
                 continue
             if enviadas:
                 await (pausa or asyncio.sleep)(1.5)  # o Discord limita ~5 mensagens a cada 5 s por canal
@@ -652,6 +653,22 @@ class Descoberta:
         log.info("🛍️ /send: %d de %d oferta(s) (%d novas, %d já postadas conhecidas)",
                  enviadas, quantidade, len(novas), len(repetidas))
         return enviadas
+
+    @staticmethod
+    def filtro_oferta(estilo=None, preco_max=None, desconto_min=None):
+        """Filtro do /send. estilo: 'designer', 'nicho', 'arabe', 'nacional' ou 'outros' (marca que o bot
+        não conhece). preco_max em R$. desconto_min: pelo menos X% OFF. Tudo vazio: qualquer oferta."""
+        def passa(oferta):
+            if estilo and (oferta.estilo or catalogo.OUTROS) != estilo:
+                return False
+            if preco_max and oferta.preco > preco_max:
+                return False
+            if desconto_min:
+                av = oferta.avaliacao
+                if not (av.referencia and av.pct and av.pct >= desconto_min):
+                    return False
+            return True
+        return passa
 
     async def postar_vitrine(self, enviar):
         """Posta a oferta da vitrine (enviar(oferta) -> bool). Pula se já saiu post no canal agora há pouco."""

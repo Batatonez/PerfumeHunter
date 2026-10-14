@@ -356,6 +356,27 @@ def texto_pausadas(estados, nome_fuso="America/Sao_Paulo"):
     return "\n".join(linhas)
 
 
+ESCOLHAS_ESTILO = [app_commands.Choice(name=rotulo, value=valor) for valor, rotulo in catalogo.CATEGORIAS.items()]
+ESCOLHAS_ESTILO.append(app_commands.Choice(name="🧴 Outras marcas", value=catalogo.OUTROS))
+
+
+def texto_send(enviadas, numero, estilo=None, ate=None, desconto=None, resumo=None):
+    filtros = [x for x in (estilo, f"até {formato.formatar_reais(ate)}" if ate else None,
+                           f"{desconto}%+ OFF" if desconto else None) if x]
+    com = f" ({', '.join(filtros)})" if filtros else ""
+    if enviadas == numero:
+        return f"🛍️ Mandei {enviadas} oferta(s){com} no canal."
+    if enviadas:
+        return (f"🛍️ Mandei {enviadas} de {numero}{com}: é o que eu conheço agora. "
+                "A varredura de hora em hora vai achando mais.")
+    conhecidas = (resumo or {}).get("conhecidas", 0)
+    if filtros:
+        return (f"🔍 Nenhuma oferta{com} agora ({conhecidas} conhecida(s) nas últimas 24 h, de todos os estilos). "
+                "Tenta sem filtro ou mais tarde.")
+    return (f"🔍 Não tenho oferta pra mandar agora ({conhecidas} conhecida(s) nas últimas 24 h). "
+            "Usa o `/status` pra ver se o Mercado Livre está funcionando.")
+
+
 def registrar_comandos(tree):
     @tree.command(name="locate", description="Pesquisa um perfume nas lojas agora e mostra o mais barato")
     @app_commands.describe(
@@ -583,10 +604,19 @@ def registrar_comandos(tree):
             view=ConfirmarLimpeza(quantidade), ephemeral=True)
 
     @tree.command(name="send", description="Manda agora N ofertas no canal (só admin)")
-    @app_commands.describe(numero="Quantas ofertas mandar (até 20)")
+    @app_commands.describe(
+        numero="Quantas ofertas mandar (até 20)",
+        estilo="Só um estilo (vazio = qualquer um)",
+        ate="Só até esse preço, em R$ (opcional)",
+        desconto="Só com pelo menos X% OFF (opcional)",
+    )
+    @app_commands.choices(estilo=ESCOLHAS_ESTILO)
     @app_commands.default_permissions(administrator=True)
     @app_commands.guild_only()
-    async def send(interaction: discord.Interaction, numero: app_commands.Range[int, 1, 20]):
+    async def send(interaction: discord.Interaction, numero: app_commands.Range[int, 1, 20],
+                   estilo: app_commands.Choice[str] | None = None,
+                   ate: app_commands.Range[float, 10, 100000] | None = None,
+                   desconto: app_commands.Range[int, 1, 90] | None = None):
         bot = interaction.client
         if not interaction.permissions.administrator:
             await interaction.response.send_message("Só admin pode usar isso 🙅", ephemeral=True)
@@ -595,17 +625,13 @@ def registrar_comandos(tree):
             await interaction.response.send_message("A busca automática está desligada no config.toml.", ephemeral=True)
             return
         await interaction.response.defer(thinking=True, ephemeral=True)
-        enviadas = await bot.descoberta.mandar_varias(numero, bot.enviar_vitrine)
-        if enviadas == numero:
-            texto = f"🛍️ Mandei {enviadas} oferta(s) no canal."
-        elif enviadas:
-            texto = (f"🛍️ Mandei {enviadas} de {numero}: é o que eu conheço agora. "
-                     "A varredura de hora em hora vai achando mais.")
-        else:
-            resumo = bot.descoberta.resumo_vitrine()
-            texto = (f"🔍 Não tenho oferta pra mandar agora ({resumo['conhecidas']} conhecida(s) nas últimas 24 h). "
-                     "Usa o `/status` pra ver se o Mercado Livre está funcionando.")
-        await interaction.followup.send(texto, ephemeral=True)
+        valor_estilo = estilo.value if estilo else None
+        filtro = None
+        if valor_estilo or ate or desconto:
+            filtro = bot.descoberta.filtro_oferta(valor_estilo, ate, desconto)
+        enviadas = await bot.descoberta.mandar_varias(numero, bot.enviar_vitrine, filtro=filtro)
+        await interaction.followup.send(texto_send(enviadas, numero, estilo.name if estilo else None, ate, desconto,
+                                                   bot.descoberta.resumo_vitrine()), ephemeral=True)
 
     @tree.command(name="despausar", description="Tira a pausa das lojas agora (só o dono)")
     async def despausar(interaction: discord.Interaction):

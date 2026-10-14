@@ -163,7 +163,7 @@ def remover_perfume_se_vazio(con, perfume_id):
 # ============================================================
 
 _SELECT_ANUNCIO = """
-SELECT a.*, p.nome AS perfume_nome, p.concentracao AS perfume_concentracao
+SELECT a.*, p.nome AS perfume_nome, p.concentracao AS perfume_concentracao, p.marca AS perfume_marca
 FROM anuncios a JOIN perfumes p ON p.id = a.perfume_id
 """
 

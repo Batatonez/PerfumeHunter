@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass
 from datetime import timedelta
 
-from scentinel import busca, coleta, db, lojas, promo
+from scentinel import busca, catalogo, coleta, db, lojas, promo
 from scentinel.formato import formatar_pct, formatar_reais
 
 log = logging.getLogger("scentinel")
@@ -137,8 +137,15 @@ class Cacador:
                     avaliacao = self._limitar_nivel(avaliacao, nivel_everyone - 1)
         return avaliacao
 
-    def _oferta(self, anuncio, leitura, quando, avaliacao, bateu_alvo=False):
+    def estilo(self, anuncio):
+        """Estilo do perfume: o do catálogo; fora dele, adivinhado pela marca (None se a marca é desconhecida)."""
         item = self._item(anuncio)
+        if item:
+            return item.categoria
+        return catalogo.estilo_da_marca(anuncio.get("perfume_marca"), anuncio.get("titulo") or anuncio.get("perfume_nome"))
+
+    def _oferta(self, anuncio, leitura, quando, avaliacao, bateu_alvo=False):
+        estilo = self.estilo(anuncio)
         return promo.Oferta(
             anuncio_id=anuncio["id"],
             perfume=anuncio["perfume_nome"],
@@ -154,7 +161,8 @@ class Cacador:
             bateu_alvo=bateu_alvo,
             quando=quando,
             origem=anuncio.get("origem") or "manual",
-            categoria=item.rotulo_categoria if item else None,
+            categoria=catalogo.CATEGORIAS.get(estilo, estilo),
+            estilo=estilo,
             oficial=bool(anuncio.get("oficial")),
             preco_de=leitura.preco_de if leitura.preco_de and leitura.preco_de > leitura.preco else None,
             imagem=anuncio.get("imagem"),

@@ -50,13 +50,22 @@ def cortar(texto, limite=LIMITE_DESCRICAO):
 # LINHAS COMUNS (alerta e /locate)
 # ============================================================
 
+PCT_MINIMO = 1  # abaixo de 1% não é desconto: não escreve "0% OFF"
+
+
+def tem_desconto(oferta):
+    av = oferta.avaliacao
+    return bool(av.referencia and av.pct and av.pct >= PCT_MINIMO)
+
+
 def linha_preco(oferta):
     av = oferta.avaliacao
     partes = [f"💰 **{formatar_reais(oferta.preco)}**"]
     if oferta.preco_de:
         partes = [f"~~{formatar_reais(oferta.preco_de)}~~ →"] + partes
     if av.referencia:
-        partes.append(f"(ref. {formatar_reais(av.referencia)})")
+        ref = f"(ref. {formatar_reais(av.referencia)})"
+        partes.append(f"**{formatar_pct(av.pct)} OFF** {ref}" if tem_desconto(oferta) else ref)
     if oferta.por_ml:
         partes.append(f"· {formatar_reais(oferta.por_ml)}/ml")
     return "   ".join(partes)
@@ -96,10 +105,11 @@ def titulo_nivel(oferta):
     if av.nivel:
         n = av.nivel
         return f"{n.emoji} NÍVEL {n.nivel} · {n.nome.upper()} — {formatar_pct(av.pct)} OFF"
+    off = f" — {formatar_pct(av.pct)} OFF" if tem_desconto(oferta) else ""
     if oferta.bateu_alvo:
-        return "💸 PREÇO BOM" if oferta.origem == "descoberta" else "🎯 BATEU SEU ALVO"
-    if av.referencia and av.pct > 0:
-        return f"−{formatar_pct(av.pct)} vs referência"
+        return ("💸 PREÇO BOM" if oferta.origem == "descoberta" else "🎯 BATEU SEU ALVO") + off
+    if off:
+        return f"🏷️ {formatar_pct(av.pct)} OFF"
     return "Sem promo agora"
 
 
@@ -130,11 +140,12 @@ def embed_alerta(oferta, nome_fuso="America/Sao_Paulo"):
 
 
 def embed_vitrine(oferta, nome_fuso="America/Sao_Paulo"):
-    """Post da vitrine: igual ao alerta, mas o título não diz "sem promo" quando não tem desconto."""
+    """Post da vitrine: igual ao alerta (com o % OFF no título), mas não diz "sem promo" quando não tem
+    desconto."""
     embed = embed_alerta(oferta, nome_fuso)
     av = oferta.avaliacao
     if not av.nivel:
-        if av.referencia and av.pct and av.pct >= 5:  # 1-4% não é desconto que valha anunciar
+        if tem_desconto(oferta):
             embed["title"] = f"🛍️ VITRINE — {formatar_pct(av.pct)} OFF"
         else:
             embed["title"] = "🛍️ VITRINE — achado do Scentinel"
@@ -149,7 +160,7 @@ def embed_vitrine(oferta, nome_fuso="America/Sao_Paulo"):
 def _resumo_curto(oferta):
     av = oferta.avaliacao
     if av.referencia and av.pct > 0:
-        return f"{oferta.loja} −{formatar_pct(av.pct)}"
+        return f"{oferta.loja} {formatar_pct(av.pct)} OFF"
     return f"{oferta.loja} {formatar_reais(oferta.preco)}"
 
 
@@ -204,7 +215,7 @@ def embed_top(ofertas, titulo="🏆 Top do dia", nome_fuso="America/Sao_Paulo"):
     linhas = []
     for i, o in enumerate(ofertas, 1):
         n = o.avaliacao.nivel
-        selo = f"{n.emoji} −{formatar_pct(o.avaliacao.pct)}" if n else ""
+        selo = f"{n.emoji} **{formatar_pct(o.avaliacao.pct)} OFF**" if n else ""
         extra = f" · {o.categoria}" if o.categoria else ""
         pix = f" · ⚡ Pix {formatar_reais(o.preco_pix)}" if o.preco_pix else ""
         linhas.append(
@@ -228,7 +239,7 @@ def _linha_oferta_viva(achado, ml, pct):
     if achado.preco_de:
         partes.insert(0, f"~~{formatar_reais(achado.preco_de)}~~")
     if pct >= 1:
-        partes.append(f"−{formatar_pct(pct)}")
+        partes.append(f"**{formatar_pct(pct)} OFF**")
     partes.append(achado.loja + (" 🛡️" if achado.oficial else ""))
     if ml:
         partes.append(f"{ml:g}ml · {formatar_reais(achado.preco / ml)}/ml")
