@@ -81,7 +81,8 @@ def test_comandos_registram_sem_erro():
     bot = BotScentinel(config.carregar_config(), segredos, db.conectar(":memory:"))
     registrar_comandos(bot.tree)
     nomes = {c.name for c in bot.tree.get_commands()}
-    assert nomes == {"locate", "add", "remove", "lista", "historico", "checar", "teste_alerta", "top", "varrer"}
+    assert nomes == {"locate", "add", "remove", "lista", "historico", "checar", "teste_alerta", "top", "varrer",
+                     "status"}
 
 
 def test_bot_fora_do_servidor_mostra_link_de_convite(caplog):
@@ -160,3 +161,47 @@ def test_locate_com_erro_nao_fica_procurando():
     asyncio.run(bot.tree.get_command("locate").callback(interacao, nome="sauvage"))
     assert "procurando" in edicoes[0]["content"]
     assert edicoes[-1]["content"].startswith("❌ Deu erro procurando **sauvage**")
+
+
+def test_locate_com_tudo_pausado_diz_por_que():
+    import asyncio
+    from datetime import timedelta
+    from types import SimpleNamespace
+
+    from scentinel.bot import BotScentinel, registrar_comandos
+
+    bot = BotScentinel(config.carregar_config(), config.Segredos("x", 1, 2, 3), db.conectar(":memory:"))
+    registrar_comandos(bot.tree)
+    desc = bot.descoberta
+    agora = desc.cacador.relogio()
+    for f in desc.fontes:
+        desc._fonte_pausada_ate[f.id] = agora + timedelta(hours=1)
+        desc._fonte_motivo[f.id] = "api: o ML pediu pra ir mais devagar (HTTP 429)"
+    edicoes = []
+
+    async def defer(**kw):
+        pass
+
+    async def editar(**kw):
+        edicoes.append(kw)
+
+    interacao = SimpleNamespace(client=bot, response=SimpleNamespace(defer=defer), edit_original_response=editar)
+    asyncio.run(bot.tree.get_command("locate").callback(interacao, nome="queening"))
+    assert len(edicoes) == 1
+    texto = edicoes[0]["content"]
+    assert "pausada" in texto and "Mercado Livre" in texto and "429" in texto and "/varrer" in texto
+
+
+def test_texto_status():
+    from datetime import UTC, datetime
+
+    from scentinel.bot import texto_status
+
+    texto = texto_status([
+        {"nome": "Mercado Livre", "pausada_ate": datetime(2026, 10, 14, 18, 0, tzinfo=UTC),
+         "motivo": "api: o login do ML venceu (HTTP 401)", "ultimo_ok": None, "ultimo_erro": "x"},
+        {"nome": "Época", "pausada_ate": None, "motivo": None,
+         "ultimo_ok": datetime(2026, 10, 14, 17, 0, tzinfo=UTC), "ultimo_erro": "HTTP 500"},
+    ])
+    assert "⏸️ **Mercado Livre**: pausada até 14/10 15:00 (o login do ML venceu (HTTP 401))" in texto
+    assert "🟢 **Época**: funcionando · última busca boa: 14/10 14:00" in texto and "último erro: HTTP 500" in texto

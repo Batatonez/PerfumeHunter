@@ -127,6 +127,14 @@ def _token_valido(caminho):
     })
     if status == 200 and dados.get("access_token"):
         return _salvar_token(dados, caminho)["access_token"], None
+    # outro processo (ex.: o ml-teste no terminal) pode ter renovado agora mesmo com o mesmo refresh_token:
+    # nesse caso o arquivo já tem o token novo
+    try:
+        novo = json.loads(caminho.read_text())
+        if novo.get("refresh_token") != registro["refresh_token"] and time.time() < novo.get("expira_em", 0):
+            return novo["access_token"], None
+    except (OSError, ValueError, KeyError, AttributeError):
+        pass
     if status in (400, 401, 403):  # invalid_grant: o login foi revogado/venceu de vez
         return None, "recusado"
     return None, "falhou"

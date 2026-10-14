@@ -569,3 +569,27 @@ def test_vendedor_bem_avaliado_vai_pro_canal_comum_nao(amb):
     )]
     rodar(amb.desc.varredura())
     assert [o.url for o, _ in amb.alertas] == ["https://a/top"]
+
+
+def test_limite_de_velocidade_pausa_no_maximo_2h(amb):
+    for _ in range(8):  # 0,5 -> 1 -> 2 -> 2 -> ... (antes ia até 48 h)
+        amb.a.varredura = [ResultadoBusca(erro="api: devagar (HTTP 429)", bloqueado=True, pausa_horas=0.5)]
+        rodar(amb.desc.varredura(forcar=True))
+        amb.relogio.agora += timedelta(hours=3)
+    estado = {e["nome"]: e for e in amb.desc.estado_fontes(amb.relogio.agora - timedelta(hours=3))}
+    assert estado["Loja A"]["pausada_ate"] - (amb.relogio.agora - timedelta(hours=3)) == timedelta(hours=2)
+    assert "429" in estado["Loja A"]["motivo"]
+    # funcionou de novo: motivo some e marca a última busca boa
+    amb.a.varredura = [pagina()]
+    rodar(amb.desc.varredura(forcar=True))
+    estado = {e["nome"]: e for e in amb.desc.estado_fontes()}
+    assert estado["Loja A"]["pausada_ate"] is None and estado["Loja A"]["motivo"] is None
+    assert estado["Loja A"]["ultimo_ok"] == amb.relogio.agora
+
+
+def test_despausar(amb):
+    amb.a.varredura = [ResultadoBusca(erro="bloqueado (HTTP 403)", bloqueado=True)]
+    rodar(amb.desc.varredura())
+    assert amb.desc.pausada(amb.a)
+    amb.desc.despausar()
+    assert not amb.desc.pausada(amb.a)

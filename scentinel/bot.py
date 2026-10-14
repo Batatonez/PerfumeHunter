@@ -245,6 +245,36 @@ async def autocomplete_anuncio(interaction, atual):
 # COMANDOS
 # ============================================================
 
+def _motivo_curto(texto):
+    return formato.cortar(str(texto or "?").removeprefix("api: ").removeprefix("página: "), 160)
+
+
+def texto_status(estados, nome_fuso="America/Sao_Paulo"):
+    linhas = ["**Lojas do Scentinel**"]
+    for e in estados:
+        if e["pausada_ate"]:
+            linhas.append(f"⏸️ **{e['nome']}**: pausada até {formato.formatar_data(e['pausada_ate'], nome_fuso)}"
+                          f" ({_motivo_curto(e['motivo'])})")
+        else:
+            ok = formato.formatar_data(e["ultimo_ok"], nome_fuso) if e["ultimo_ok"] else "ainda nenhuma"
+            linhas.append(f"🟢 **{e['nome']}**: funcionando · última busca boa: {ok}")
+        if e["ultimo_erro"] and not e["pausada_ate"]:
+            linhas.append(f"   último erro: {_motivo_curto(e['ultimo_erro'])}")
+    linhas.append("O dono pode usar `/varrer` pra tentar de novo agora.")
+    return "\n".join(linhas)
+
+
+def texto_pausadas(estados, nome_fuso="America/Sao_Paulo"):
+    pausadas = [e for e in estados if e["pausada_ate"]]
+    linhas = ["⏸️ Não dá pra pesquisar agora: " + ("a loja está pausada." if len(pausadas) == 1 else
+                                                    "as lojas estão pausadas.")]
+    for e in pausadas:
+        linhas.append(f"**{e['nome']}** volta {formato.formatar_data(e['pausada_ate'], nome_fuso)} "
+                      f"({_motivo_curto(e['motivo'])})")
+    linhas.append("O dono pode usar `/varrer` pra tentar de novo agora.")
+    return "\n".join(linhas)
+
+
 def registrar_comandos(tree):
     @tree.command(name="locate", description="Pesquisa um perfume nas lojas agora e mostra o mais barato")
     @app_commands.describe(
@@ -271,6 +301,10 @@ def registrar_comandos(tree):
 
         if bot.descoberta:
             lojas = [f.nome for f in bot.descoberta.fontes if not bot.descoberta.pausada(f)]
+            if not lojas and bot.descoberta.fontes:  # tudo pausado: diz por quê, em vez de "não achei"
+                await interaction.edit_original_response(
+                    content=formato.cortar(texto_pausadas(bot.descoberta.estado_fontes(), bot.cfg.fuso), 1900))
+                return
             await interaction.edit_original_response(
                 content=f"🔎 procurando em {len(lojas)} loja(s)... (leva até uns {TEMPO_MAX_AO_VIVO_S} s)"
             )
@@ -451,6 +485,7 @@ def registrar_comandos(tree):
             await interaction.response.send_message("🧹 Já tem uma varredura rodando agora. Os posts chegam no canal.")
             return
         await interaction.response.defer(thinking=True)
+        bot.descoberta.despausar()  # o dono pediu: tenta de novo agora, mesmo nas lojas pausadas
         linhas = await bot.descoberta.varredura(forcar=True)
         postados = sum(1 for linha in linhas if linha.startswith("🔥"))
         problemas = [linha for linha in linhas if linha.startswith(("🚫", "❌", "⏸️"))]
@@ -458,6 +493,15 @@ def registrar_comandos(tree):
         if problemas:
             texto += "\n" + "\n".join(problemas[:8])
         await interaction.edit_original_response(content=formato.cortar(texto, 1900))
+
+    @tree.command(name="status", description="Como estão as lojas: funcionando, pausadas e por quê")
+    async def status(interaction: discord.Interaction):
+        bot = interaction.client
+        if not bot.descoberta:
+            await interaction.response.send_message("A busca automática está desligada no config.toml.", ephemeral=True)
+            return
+        texto = texto_status(bot.descoberta.estado_fontes(), bot.cfg.fuso)
+        await interaction.response.send_message(formato.cortar(texto, 1900), ephemeral=True)
 
     @tree.command(name="checar", description="Força uma rodada de checagem agora (só o dono)")
     async def checar(interaction: discord.Interaction):

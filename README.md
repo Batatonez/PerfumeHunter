@@ -265,7 +265,8 @@ Reinicie com a tampa fechada (`sudo reboot`). Espere uns 2 minutos e veja se o b
 | Comando | Quem | O que faz |
 |---|---|---|
 | `/locate nome [marca]` | todo mundo | **pesquisa nas lojas na hora** (qualquer perfume, não precisa cadastrar) e mostra o mais barato, as outras ofertas, desconto e R$/ml. Ex.: `/locate nome:khamrah marca:lattafa` |
-| `/varrer` | dono | força a varredura de ofertas agora (normalmente é de hora em hora) |
+| `/varrer` | dono | força a varredura de ofertas agora (normalmente é de hora em hora); tira a pausa das lojas |
+| `/status` | todos | mostra se cada loja está funcionando ou pausada (até quando e por quê) |
 | `/add url nome ml [alvo] [marca] [seletor]` | dono | cadastra um anúncio, **testa o preço na hora** e mostra o que leu |
 | `/remove anuncio` | dono | para de vigiar (tem autocomplete) |
 | `/top` | todo mundo | as melhores promos das últimas 24 h, uma por perfume |

@@ -28,6 +28,7 @@ RELER_MESMO_PRECO_APOS = timedelta(hours=6)  # preço igual: só registra de nov
 NAO_REPOSTAR_POR = timedelta(days=7)  # mesmo anúncio a preço igual ou maior que o já postado: não reposta
 PRECO_SUSPEITO = 0.35  # perfume do catálogo a menos de 35% do normal: quase certo que não é o produto
 TEMPO_MAX_AO_VIVO_S = 40  # /locate: loja que não respondeu nisso fica de fora da resposta
+PAUSA_LIMITE_MAX_HORAS = 2  # pausa por limite de velocidade (429) nunca passa disso
 
 
 def _passageiro(erro):
@@ -74,6 +75,9 @@ class Descoberta:
         self._fonte_falhas = {}  # bloqueios seguidos
         self._fonte_erros = {}  # erros seguidos (loja fora do ar, endpoint que não existe...)
         self._fonte_avisada = {}  # último bloqueio avisado no canal (avisa de novo só se mudar)
+        self._fonte_motivo = {}  # por que está pausada (pro /status e pro /locate)
+        self._fonte_ultimo_ok = {}  # última busca que funcionou
+        self._fonte_ultimo_erro = {}  # último erro (mesmo sem pausar)
         self._ultima_varredura = None
         self.trava_varredura = asyncio.Lock()  # uma varredura por vez (loop e /varrer)
         self._em_segundo_plano = set()
@@ -90,14 +94,33 @@ class Descoberta:
         pausa = self._fonte_pausada_ate.get(fonte.id)
         return bool(pausa and pausa > (agora or self.cacador.relogio()))
 
+    def estado_fontes(self, agora=None):
+        """Pro /status: cada loja, se está pausada (até quando e por quê), última busca boa e último erro."""
+        agora = agora or self.cacador.relogio()
+        return [{
+            "nome": f.nome,
+            "pausada_ate": self._fonte_pausada_ate.get(f.id) if self.pausada(f, agora) else None,
+            "motivo": self._fonte_motivo.get(f.id),
+            "ultimo_ok": self._fonte_ultimo_ok.get(f.id),
+            "ultimo_erro": self._fonte_ultimo_erro.get(f.id),
+        } for f in self.fontes]
+
+    def despausar(self):
+        """O dono mandou tentar de novo agora (/varrer)."""
+        self._fonte_pausada_ate.clear()
+        self._fonte_erros.clear()
+
     async def _tratar_resultado(self, fonte, res, agora):
         """Cuida de bloqueio/erro. Devolve (ok, linha_de_log)."""
         if res.bloqueado:
             falhas = self._fonte_falhas.get(fonte.id, 0) + 1
             self._fonte_falhas[fonte.id] = falhas
             base = res.pausa_horas or self.cacador.cfg.backoff_horas
-            horas = min(base * 2 ** (falhas - 1), self.cacador.cfg.backoff_max_horas)
+            # limite de velocidade: no máximo 2 h (com o ML de única loja, 48 h seria o canal parado 2 dias)
+            teto = PAUSA_LIMITE_MAX_HORAS if res.pausa_horas else self.cacador.cfg.backoff_max_horas
+            horas = min(base * 2 ** (falhas - 1), teto)
             self._fonte_pausada_ate[fonte.id] = agora + timedelta(hours=horas)
+            self._fonte_motivo[fonte.id] = self._fonte_ultimo_erro[fonte.id] = res.erro
             # avisa uma vez por tipo de bloqueio (ex.: depois de um 429, um "login venceu" ainda avisa);
             # limite de velocidade (pausa curta) fica só no log
             if self.enviar_aviso and not res.pausa_horas and self._fonte_avisada.get(fonte.id) != res.erro:
@@ -110,15 +133,19 @@ class Descoberta:
         if res.erro:
             erros = self._fonte_erros.get(fonte.id, 0) + 1
             self._fonte_erros[fonte.id] = erros
+            self._fonte_ultimo_erro[fonte.id] = res.erro
             if erros >= ERROS_PRA_PAUSAR:
                 # rede caiu / loja fora do ar: volta logo; erro que se repete (busca que não existe): 24 h
                 horas = 1 if _passageiro(res.erro) else 24
                 self._fonte_pausada_ate[fonte.id] = agora + timedelta(hours=horas)
+                self._fonte_motivo[fonte.id] = f"{erros} erros seguidos: {res.erro}"
                 self._fonte_erros[fonte.id] = 0
                 return False, f"⏸️ {fonte.nome}: {erros} erros seguidos ({res.erro}), pausada por {horas} h"
             return False, f"❌ {fonte.nome}: {res.erro}"
         self._fonte_erros.pop(fonte.id, None)
         self._fonte_avisada.pop(fonte.id, None)
+        self._fonte_motivo.pop(fonte.id, None)
+        self._fonte_ultimo_ok[fonte.id] = agora
         return True, None
 
     # ------------------------------------------------------------

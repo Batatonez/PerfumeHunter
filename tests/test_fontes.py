@@ -702,3 +702,21 @@ def test_ml_reputacao_boa():
     assert not ml.reputacao_boa({"seller_reputation": {"level_id": "5_green", "power_seller_status": "silver"}})
     assert not ml.reputacao_boa({"seller_reputation": {"level_id": "4_light_green", "power_seller_status": "platinum"}})
     assert not ml.reputacao_boa({}) and not ml.reputacao_boa(None)
+
+
+def test_ml_outro_processo_renovou_o_login(monkeypatch, tmp_path):
+    import json
+    import time as _t
+
+    arq = tmp_path / "ml_token.json"
+    arq.write_text(json.dumps({"access_token": "VELHO", "refresh_token": "R1", "expira_em": 0}))
+    monkeypatch.setattr(ml, "ARQ_TOKEN", arq)
+    monkeypatch.setenv("ML_CLIENT_ID", "1")
+    monkeypatch.setenv("ML_CLIENT_SECRET", "2")
+
+    def renovou_antes(campos):  # o ml-teste renovou primeiro: o R1 já não vale
+        arq.write_text(json.dumps({"access_token": "NOVO", "refresh_token": "R2", "expira_em": _t.time() + 3600}))
+        return {"error": "invalid_grant"}, 400
+
+    monkeypatch.setattr(ml, "_pedir_token", renovou_antes)
+    assert ml.token_e_motivo() == ("NOVO", None)
