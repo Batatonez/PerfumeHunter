@@ -596,11 +596,17 @@ def test_locate_explica_por_que_nao_achou(amb):
     assert res.ofertas == []
     assert res.detalhes == [("Loja A", "nenhum produto com esse nome no catálogo do ML"),
                             ("Loja B", "1 anúncio(s) com outro nome/tamanho")]
-    texto = embed_ao_vivo(res)["description"]
-    assert "• Loja A: nenhum produto com esse nome no catálogo do ML" in texto
-    assert "só enxerga o catálogo do ML" in texto  # explica o limite da API do ML
-    res.detalhes.append(("Loja A", "site do ML: 12 anúncio(s)"))
-    assert "só enxerga o catálogo" not in embed_ao_vivo(res)["description"]  # se o site rodou, não precisa
+    e = embed_ao_vivo(res)
+    # manchete em português simples; o técnico fica pequeno no rodapé
+    assert e["description"].startswith("**😿 Não achei esse perfume no catálogo do Mercado Livre**")
+    assert "anúncios avulsos" in e["description"]
+    assert "Loja A: nenhum produto com esse nome no catálogo do ML" in e["footer"]["text"]
+    # só anúncio com outro nome: sugere conferir a escrita
+    res.detalhes = [("Loja B", "1 anúncio(s) com outro nome/tamanho")]
+    assert "nenhum com esse nome" in embed_ao_vivo(res)["description"]
+    # catálogo tem, mas ninguém vendendo
+    res.detalhes = [("Loja A", "catálogo do ML: 2 produto(s) (2 sem ninguém vendendo agora)")]
+    assert "ninguém tá vendendo agora" in embed_ao_vivo(res)["description"]
 
 
 # ============================================================
@@ -781,8 +787,9 @@ def test_locate_tenta_mesmo_com_pausa_de_limite_e_diz_o_erro(amb):
     amb.a.programar("sauvage dior", erro="api: o ML pediu pra ir mais devagar (HTTP 429)", bloqueado=True)
     res = rodar(amb.desc.buscar_ao_vivo("sauvage", "dior"))
     assert amb.a.chamadas == ["sauvage dior"] and amb.b.chamadas == []  # B (login) nem tenta
-    texto = embed_ao_vivo(res)["description"]
-    assert "• Loja A: o ML pediu pra ir mais devagar (HTTP 429)" in texto
+    e = embed_ao_vivo(res)
+    assert "Loja A não respondeu agora" in e["description"] and "mais devagar" in e["description"]
+    assert "Loja A: o ML pediu pra ir mais devagar (HTTP 429)" in e["footer"]["text"]
 
 
 def test_locate_sempre_tem_o_link_da_busca_completa(amb):
@@ -795,7 +802,7 @@ def test_locate_sempre_tem_o_link_da_busca_completa(amb):
     amb.desc.fontes = [FonteComLink("ml", "Mercado Livre")]
     res = rodar(amb.desc.buscar_ao_vivo("queening"))  # nada no catálogo
     e = embed_ao_vivo(res)
-    assert "[Ver todos os anúncios no Mercado Livre](https://lista.exemplo/queening)" in e["description"]
+    assert '[Ver todos os anúncios de "queening" no Mercado Livre](https://lista.exemplo/queening)' in e["description"]
     assert e["url"] == "https://lista.exemplo/queening"  # o título também abre a busca
     amb.desc.fontes[0].programar("sauvage dior", achado("Sauvage Dior EDP 100ml", 650, "Loja A", "https://a/s"))
     e = embed_ao_vivo(rodar(amb.desc.buscar_ao_vivo("sauvage", "dior")))

@@ -364,7 +364,7 @@ def test_locate_nunca_usa_preco_guardado():
 
     interacao = SimpleNamespace(client=bot, response=SimpleNamespace(defer=defer), edit_original_response=editar)
     asyncio.run(bot.tree.get_command("locate").callback(interacao, nome="sauvage"))
-    assert edicoes[-1]["embed"].description.startswith("Não achei **sauvage**")
+    assert "Não achei esse perfume" in edicoes[-1]["embed"].description
 
 
 def test_locate_sem_sugestao():

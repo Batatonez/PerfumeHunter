@@ -4,7 +4,6 @@ Os embeds são montados como dict puro (testável) e viram discord.Embed
 com discord.Embed.from_dict() no bot.
 """
 
-import re
 from datetime import UTC, timedelta, timezone
 
 from scentinel.promo import FONTE_CATALOGO, FONTE_LOJA, FONTE_MERCADO
@@ -236,28 +235,56 @@ def _linha_oferta_viva(achado, ml, pct):
     return " · ".join(partes)
 
 
+def _porque_nao_achou(res):
+    """(manchete, explicação) em português simples, a partir do que as lojas responderam."""
+    motivos = " ".join(m or "" for _, m in getattr(res, "detalhes", None) or [])
+    if res.lojas_falha and not res.lojas_ok:
+        motivo = next((m for _, m in res.detalhes if m), "")
+        if "429" in motivo or "devagar" in motivo:
+            explica = "O ML pediu pro bot ir mais devagar. Tenta de novo em uns minutinhos."
+        elif "401" in motivo or "login" in motivo:
+            explica = "O login do bot no ML venceu. Avisa o dono pra rodar o ml-login no notebook."
+        else:
+            explica = "Pode ser instabilidade do ML. Tenta de novo daqui a pouco."
+        return f"⚠️ {', '.join(res.lojas_falha)} não respondeu agora", explica
+    if "com outro nome" in motivos and "nenhum produto com esse nome" not in motivos:
+        return ("🤔 Achei anúncios, mas nenhum com esse nome",
+                "Confere a escrita ou tenta com a marca (ex.: `/locate nome:sauvage marca:dior`).")
+    if "sem ninguém vendendo" in motivos or "escondidos" in motivos:
+        if "com vendedor" not in motivos:
+            return ("😿 Tá no catálogo do ML, mas ninguém tá vendendo agora",
+                    "Pode voltar a qualquer hora. Dá uma olhada nos anúncios avulsos no link abaixo.")
+    if "kit/decant" in motivos and "com vendedor" not in motivos:
+        return ("🧪 Só achei kit, decant ou amostra",
+                "O bot mostra só o frasco inteiro. Os outros anúncios estão no link abaixo.")
+    return ("😿 Não achei esse perfume no catálogo do Mercado Livre",
+            "Ele deve estar só em anúncios avulsos, que o ML não mostra pra bots.")
+
+
+def embed_nao_achou(res):
+    manchete, explica = _porque_nao_achou(res)
+    linhas = [f"**{manchete}**", explica]
+    links = getattr(res, "links", None) or []
+    if links:
+        linhas.append("")
+        for loja, link in links:
+            linhas.append(f"👉 **[Ver todos os anúncios de \"{res.consulta}\" no {loja}]({link})**")
+    embed = {
+        "title": f"🔎 {res.consulta}",
+        "color": COR_NEUTRA,
+        "description": cortar("\n".join(linhas)),
+    }
+    if links:
+        embed["url"] = links[0][1]
+    detalhes = " · ".join(f"{loja}: {m}" for loja, m in getattr(res, "detalhes", None) or [] if m)
+    if detalhes:  # o técnico fica pequeno no rodapé (ajuda a entender o que houve, sem poluir)
+        embed["footer"] = {"text": cortar(detalhes, 2000)}
+    return embed
+
+
 def embed_ao_vivo(res, max_linhas=8):
     if not res.ofertas:
-        onde = ", ".join(res.lojas_ok) or "nenhuma loja respondeu"
-        linhas = [f"Não achei **{res.consulta}** em nenhuma loja agora ({onde}). Confere o nome? 🐈‍⬛"]
-        for loja, motivo in getattr(res, "detalhes", None) or []:
-            if motivo:
-                linhas.append(f"• {loja}: {motivo}")
-        motivos = " ".join(m or "" for _, m in getattr(res, "detalhes", None) or [])
-        if "catálogo do ML" in motivos and not re.search(r"site do ML: \d+ anúncio", motivos):
-            # só o catálogo foi olhado: explica o limite (anúncio solto o ML não mostra pra bot)
-            linhas.append("_O bot só enxerga o catálogo do ML: anúncio solto, fora dele, o ML não mostra pra bots._")
-        links = getattr(res, "links", None) or []
-        for loja, link in links:
-            linhas.append(f"👉 **[Ver todos os anúncios no {loja}]({link})** (abre a busca completa, com os soltos)")
-        embed = {
-            "title": f"🔎 {res.consulta}",
-            "color": COR_NEUTRA,
-            "description": cortar("\n".join(linhas)),
-        }
-        if links:
-            embed["url"] = links[0][1]
-        return embed
+        return embed_nao_achou(res)
     primeiro, ml, pct = res.ofertas[0]
     linhas = [
         f"🏆 **Mais barato:** [{primeiro.titulo[:90]}]({primeiro.url})",
