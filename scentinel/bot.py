@@ -117,6 +117,7 @@ class BotScentinel(discord.Client):
                 # Chromium do /locate: baixa sozinho na 1ª vez (em segundo plano, não atrasa o bot)
                 self._instalando_navegador = asyncio.create_task(asyncio.to_thread(navegador.garantir_instalado))
             self.loop_descoberta.start()
+            self.loop_alertas.start()
             if horario_top(self.cfg.descoberta.top_diario, self.cfg.fuso):
                 self.loop_top.start()
             if self.cfg.descoberta.vitrine_minutos:
@@ -171,6 +172,19 @@ class BotScentinel(discord.Client):
             log.exception("falha ao mandar a vitrine")
             return False
 
+    async def enviar_alerta_usuario(self, alerta, achado, ml, pct):
+        """/alerta: marca só a pessoa que pediu, no canal."""
+        try:
+            canal = await self.canal()
+            uid = alerta["usuario_id"]
+            embed = discord.Embed.from_dict(formato.embed_alerta_usuario(alerta, achado, ml, pct))
+            await canal.send(content=f"<@{uid}> 🔔 chegou em **{formato.formatar_reais(achado.preco)}**",
+                             embed=embed, allowed_mentions=discord.AllowedMentions(users=[discord.Object(id=uid)]))
+            return True
+        except discord.DiscordException:
+            log.exception("falha ao mandar o /alerta #%s", alerta.get("id"))
+            return False
+
     async def enviar_aviso(self, texto):
         try:
             canal = await self.canal()
@@ -218,6 +232,18 @@ class BotScentinel(discord.Client):
     @loop_vitrine.before_loop
     async def antes_da_vitrine(self):
         await self.wait_until_ready()
+
+    @tasks.loop(minutes=60)
+    async def loop_alertas(self):
+        try:
+            await self.descoberta.checar_alertas_usuarios(self.enviar_alerta_usuario)
+        except Exception:
+            log.exception("erro nos /alerta")
+
+    @loop_alertas.before_loop
+    async def antes_dos_alertas(self):
+        await self.wait_until_ready()
+        await asyncio.sleep(5 * 60)  # deixa a primeira varredura começar antes
 
     @tasks.loop(time=dt.time(19, 0))
     async def loop_top(self):
@@ -366,6 +392,55 @@ def texto_pausadas(estados, nome_fuso="America/Sao_Paulo"):
                       f"({_motivo_curto(e['motivo'])})")
     linhas.append("O dono pode usar `/varrer` pra tentar de novo agora.")
     return "\n".join(linhas)
+
+
+MAX_ALERTAS_POR_PESSOA = 5
+MAX_ALERTAS_DONO = 20
+MAX_ALERTAS_TOTAL = 60  # cada alerta é uma pesquisa no ML a cada ~3 h: com educação
+
+
+def _nome_alerta(alerta):
+    return alerta["consulta"] + (f" {alerta['ml']:g}ml" if alerta.get("ml") else "")
+
+
+def texto_alerta_criado(alerta, res, melhor):
+    fr = formato.formatar_reais
+    texto = (f"🔔 Alerta #{alerta['id']} criado: **{_nome_alerta(alerta)}** até **{fr(alerta['preco_max'])}**.\n"
+             "Eu te marco no canal quando chegar nesse preço (confiro a cada ~3 h).")
+    if melhor and melhor[0].preco <= alerta["preco_max"]:
+        texto += f"\n🎉 Já tá nesse preço agora: **{fr(melhor[0].preco)}** · [ver anúncio]({melhor[0].url})"
+    elif melhor:
+        texto += f"\nAgora o mais barato tá **{fr(melhor[0].preco)}** · [ver anúncio]({melhor[0].url})"
+    elif res.lojas_ok:
+        texto += ("\n⚠️ Agora não achei esse perfume no catálogo do Mercado Livre. Confere o nome com o `/locate`"
+                  " (o alerta fica valendo mesmo assim).")
+    else:
+        texto += "\n⚠️ O Mercado Livre não respondeu agora; eu confiro mais tarde."
+    return texto
+
+
+def texto_alertas(alertas):
+    if not alertas:
+        return "Você não tem nenhum alerta. Cria um com `/alerta criar` 🙂"
+    fr = formato.formatar_reais
+    linhas = ["🔔 **Seus alertas**"]
+    for a in alertas:
+        extra = f" · último aviso {fr(a['avisado_preco'])}" if a["avisado_preco"] is not None else ""
+        linhas.append(f"`#{a['id']}` {_nome_alerta(a)} até **{fr(a['preco_max'])}**{extra}")
+    linhas.append("Pra parar um: `/alerta remover`")
+    return "\n".join(linhas)
+
+
+async def autocomplete_meus_alertas(interaction, atual):
+    alertas = db.alertas_do_usuario(interaction.client.con, interaction.user.id)
+    alvo = busca.normalizar(atual)
+    escolhas = []
+    for a in alertas:
+        rotulo = f"#{a['id']} {_nome_alerta(a)} até {formato.formatar_reais(a['preco_max'])}"
+        if alvo and alvo not in busca.normalizar(rotulo):
+            continue
+        escolhas.append(app_commands.Choice(name=rotulo[:100], value=a["id"]))
+    return escolhas[:25]
 
 
 ESCOLHAS_ESTILO = [app_commands.Choice(name=rotulo, value=valor) for valor, rotulo in catalogo.CATEGORIAS.items()]
@@ -669,6 +744,67 @@ def registrar_comandos(tree):
         texto = texto_status(bot.descoberta.estado_fontes(), bot.cfg.fuso)
         texto += "\n" + texto_vitrine(bot.descoberta.resumo_vitrine(), bot.cfg.fuso)
         await interaction.response.send_message(formato.cortar(texto, 1900), ephemeral=True)
+
+    grupo_alerta = app_commands.Group(name="alerta", description="Alerta de preço só seu: o bot te marca quando baixar",
+                                      guild_only=True)
+
+    @grupo_alerta.command(name="criar", description="Me marca quando esse perfume ficar abaixo de um preço")
+    @app_commands.describe(
+        perfume="Nome do perfume (ex.: 'sauvage edp', 'khamrah')",
+        preco="Avisa quando ficar igual ou abaixo disso, em R$",
+        ml="Tamanho do frasco em ml (vazio = qualquer tamanho)",
+    )
+    async def alerta_criar(interaction: discord.Interaction, perfume: str,
+                           preco: app_commands.Range[float, 10, 100000],
+                           ml: app_commands.Range[float, 1, 1000] | None = None):
+        bot = interaction.client
+        if not bot.descoberta:
+            await interaction.response.send_message("A busca automática está desligada no config.toml.", ephemeral=True)
+            return
+        consulta = " ".join(perfume.split())[:80]
+        if not busca.normalizar(consulta):
+            await interaction.response.send_message("Escreve o nome do perfume 🙂", ephemeral=True)
+            return
+        meus = db.alertas_do_usuario(bot.con, interaction.user.id)
+        limite = MAX_ALERTAS_DONO if bot.eh_dono(interaction) else MAX_ALERTAS_POR_PESSOA
+        if len(meus) >= limite:
+            await interaction.response.send_message(
+                f"Você já tem {len(meus)} alertas (o máximo é {limite}). Tira um com `/alerta remover`.", ephemeral=True)
+            return
+        if db.contar_alertas_usuario(bot.con) >= MAX_ALERTAS_TOTAL:
+            await interaction.response.send_message(
+                "O servidor já tem alertas demais agora (cada um é uma pesquisa no ML). Tenta mais tarde.",
+                ephemeral=True)
+            return
+        repetido = next((a for a in meus if busca.normalizar(a["consulta"]) == busca.normalizar(consulta)
+                         and a["ml"] == ml), None)
+        if repetido:
+            await interaction.response.send_message(
+                f"Você já tem esse alerta (#{repetido['id']}, até {formato.formatar_reais(repetido['preco_max'])}). "
+                "Pra mudar o preço, remove com `/alerta remover` e cria de novo.", ephemeral=True)
+            return
+        await interaction.response.defer(thinking=True, ephemeral=True)
+        res = await bot.descoberta.buscar_ao_vivo(consulta)
+        melhor = bot.descoberta.melhor_do_alerta(res, ml)
+        ja = melhor[0].preco if melhor and melhor[0].preco <= preco else None  # já tá no preço: avisa aqui mesmo
+        alerta = db.criar_alerta_usuario(bot.con, interaction.user.id, consulta, preco, ml, avisado_preco=ja)
+        await interaction.edit_original_response(content=formato.cortar(texto_alerta_criado(alerta, res, melhor), 1900))
+
+    @grupo_alerta.command(name="lista", description="Mostra os seus alertas de preço")
+    async def alerta_lista(interaction: discord.Interaction):
+        alertas = db.alertas_do_usuario(interaction.client.con, interaction.user.id)
+        await interaction.response.send_message(formato.cortar(texto_alertas(alertas), 1900), ephemeral=True)
+
+    @grupo_alerta.command(name="remover", description="Para um alerta de preço seu")
+    @app_commands.describe(alerta="Qual alerta")
+    @app_commands.autocomplete(alerta=autocomplete_meus_alertas)
+    async def alerta_remover(interaction: discord.Interaction, alerta: int):
+        removido = db.remover_alerta_usuario(interaction.client.con, alerta, interaction.user.id)
+        texto = (f"🗑️ Parei o alerta #{removido['id']} ({_nome_alerta(removido)})." if removido
+                 else f"Não achei o alerta #{alerta} entre os seus (veja com `/alerta lista`).")
+        await interaction.response.send_message(texto, ephemeral=True)
+
+    tree.add_command(grupo_alerta)
 
     @tree.command(name="atualizar", description="Baixa a versão nova do bot, testa e reinicia (só o dono)")
     async def atualizar_cmd(interaction: discord.Interaction):

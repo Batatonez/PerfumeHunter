@@ -347,3 +347,27 @@ def embed_ao_vivo(res, max_linhas=8):
     if primeiro.imagem:
         embed["thumbnail"] = {"url": primeiro.imagem}
     return embed
+
+
+# ============================================================
+# 🔔 /alerta (alerta pessoal)
+# ============================================================
+
+def embed_alerta_usuario(alerta, achado, ml, pct):
+    linhas = [
+        f"**{achado.titulo[:150]}**",
+        "💰 " + _linha_oferta_viva(achado, ml, pct),
+        f"🎯 Você pediu até {formatar_reais(alerta['preco_max'])}",
+        f"🔗 [abrir o anúncio]({achado.url})",
+    ]
+    tamanho = f" {alerta['ml']:g}ml" if alerta.get("ml") else ""
+    embed = {
+        "title": cortar(f"🔔 {alerta['consulta']}{tamanho} chegou no seu preço", 256),
+        "url": achado.url,
+        "color": COR_ALVO,
+        "description": cortar("\n".join(linhas)),
+        "footer": {"text": f"Alerta #{alerta['id']} · /alerta lista pra ver os seus · /alerta remover pra parar"},
+    }
+    if achado.imagem:
+        embed["thumbnail"] = {"url": achado.imagem}
+    return embed

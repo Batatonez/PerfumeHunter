@@ -67,6 +67,19 @@ CREATE TABLE IF NOT EXISTS alertas (
     preco       REAL NOT NULL,
     quando      TEXT NOT NULL
 );
+
+-- /alerta: "me marca quando X ficar abaixo de R$ Y"
+CREATE TABLE IF NOT EXISTS alertas_usuario (
+    id             INTEGER PRIMARY KEY,
+    usuario_id     INTEGER NOT NULL,
+    consulta       TEXT NOT NULL,
+    preco_max      REAL NOT NULL,
+    ml             REAL,
+    criado_em      TEXT NOT NULL,
+    ultima_busca   TEXT,
+    avisado_preco  REAL                 -- preço do último aviso; NULL = a próxima vez que chegar avisa
+);
+CREATE INDEX IF NOT EXISTS idx_alertas_usuario ON alertas_usuario(usuario_id);
 """
 
 
@@ -450,3 +463,56 @@ def alertas_de_nivel_desde(con, nivel_minimo, desde):
     return con.execute(
         "SELECT COUNT(*) FROM alertas WHERE nivel >= ? AND quando >= ?", (nivel_minimo, para_texto(desde))
     ).fetchone()[0]
+
+
+# ============================================================
+# /alerta (alerta de preço de cada pessoa)
+# ============================================================
+
+def criar_alerta_usuario(con, usuario_id, consulta, preco_max, ml=None, avisado_preco=None, quando=None):
+    quando = para_texto(quando or agora_utc())
+    cur = con.execute(
+        "INSERT INTO alertas_usuario (usuario_id, consulta, preco_max, ml, criado_em, ultima_busca, avisado_preco)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (usuario_id, consulta, preco_max, ml, quando, quando if avisado_preco is not None else None, avisado_preco),
+    )
+    con.commit()
+    return alerta_usuario(con, cur.lastrowid)
+
+
+def alerta_usuario(con, alerta_id):
+    return _dict(con.execute("SELECT * FROM alertas_usuario WHERE id = ?", (alerta_id,)).fetchone())
+
+
+def alertas_do_usuario(con, usuario_id):
+    return [_dict(l) for l in con.execute(
+        "SELECT * FROM alertas_usuario WHERE usuario_id = ? ORDER BY id", (usuario_id,))]
+
+
+def contar_alertas_usuario(con):
+    return con.execute("SELECT COUNT(*) FROM alertas_usuario").fetchone()[0]
+
+
+def remover_alerta_usuario(con, alerta_id, usuario_id):
+    """Só remove o alerta da própria pessoa. Devolve o alerta removido (ou None)."""
+    alerta = alerta_usuario(con, alerta_id)
+    if not alerta or alerta["usuario_id"] != usuario_id:
+        return None
+    con.execute("DELETE FROM alertas_usuario WHERE id = ?", (alerta_id,))
+    con.commit()
+    return alerta
+
+
+def alertas_usuario_vencidos(con, antes_de, limite):
+    """Os que não foram pesquisados desde `antes_de`, os mais atrasados primeiro."""
+    return [_dict(l) for l in con.execute(
+        "SELECT * FROM alertas_usuario WHERE ultima_busca IS NULL OR ultima_busca <= ?"
+        " ORDER BY ultima_busca IS NOT NULL, ultima_busca, id LIMIT ?",
+        (para_texto(antes_de), limite),
+    )]
+
+
+def marcar_alerta_usuario(con, alerta_id, quando, avisado_preco):
+    con.execute("UPDATE alertas_usuario SET ultima_busca = ?, avisado_preco = ? WHERE id = ?",
+                (para_texto(quando), avisado_preco, alerta_id))
+    con.commit()

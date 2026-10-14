@@ -97,7 +97,7 @@ def test_comandos_registram_sem_erro():
     registrar_comandos(bot.tree)
     nomes = {c.name for c in bot.tree.get_commands()}
     assert nomes == {"locate", "add", "remove", "lista", "historico", "checar", "teste_alerta", "top", "varrer",
-                     "status", "despausar", "clear", "send", "atualizar"}
+                     "status", "despausar", "clear", "send", "atualizar", "alerta"}
 
 
 def test_bot_fora_do_servidor_mostra_link_de_convite(caplog):
@@ -434,3 +434,64 @@ def test_domingo_sai_o_top_da_semana():
     assert asyncio.run(bot.postar_top(hoje=dt.date(2026, 10, 18)))  # domingo
     assert asyncio.run(bot.postar_top(hoje=dt.date(2026, 10, 19)))  # segunda
     assert enviados == ["🏆 Top da semana", "🏆 Top do dia"]
+
+
+def test_alerta_pessoal_pelo_discord():
+    import asyncio
+    from types import SimpleNamespace
+
+    from scentinel.bot import MAX_ALERTAS_POR_PESSOA, BotScentinel, registrar_comandos
+    from scentinel.descoberta import ResultadoAoVivo
+    from scentinel.fontes import Achado
+
+    bot = BotScentinel(config.carregar_config(), config.Segredos("x", 1, 2, 42), db.conectar(":memory:"))
+    registrar_comandos(bot.tree)
+    grupo = bot.tree.get_command("alerta")
+    criar, lista, remover = (grupo.get_command(n) for n in ("criar", "lista", "remover"))
+    k = Achado(titulo="Perfume Lattafa Khamrah EDP 100ml", url="https://ml/k", preco=239.9, loja="Mercado Livre")
+
+    async def ao_vivo(nome, marca=None):
+        return ResultadoAoVivo(nome, ofertas=[(k, 100, 0)], lojas_ok=["Mercado Livre"])
+
+    bot.descoberta.buscar_ao_vivo = ao_vivo
+    respostas, edicoes = [], []
+
+    async def responder(texto, **kw):
+        respostas.append(texto)
+
+    async def defer(**kw):
+        pass
+
+    async def editar(**kw):
+        edicoes.append(kw["content"])
+
+    def interacao(uid):
+        return SimpleNamespace(client=bot, user=SimpleNamespace(id=uid), edit_original_response=editar,
+                               response=SimpleNamespace(send_message=responder, defer=defer))
+
+    asyncio.run(criar.callback(interacao(7), perfume="khamrah", preco=250.0))
+    assert "Alerta #1 criado" in edicoes[-1] and "Já tá nesse preço agora: **R$ 239,90**" in edicoes[-1]
+    assert db.alerta_usuario(bot.con, 1)["avisado_preco"] == 239.9  # já avisou na resposta: não marca de novo
+    asyncio.run(criar.callback(interacao(7), perfume="Khamrah", preco=200.0))
+    assert "já tem esse alerta" in respostas[-1]
+    for i in range(MAX_ALERTAS_POR_PESSOA - 1):
+        asyncio.run(criar.callback(interacao(7), perfume=f"perfume {i}", preco=200.0))
+    asyncio.run(criar.callback(interacao(7), perfume="mais um", preco=200.0))
+    assert f"o máximo é {MAX_ALERTAS_POR_PESSOA}" in respostas[-1]
+    asyncio.run(lista.callback(interacao(7)))
+    assert "`#1` khamrah até **R$ 250,00** · último aviso R$ 239,90" in respostas[-1]
+    asyncio.run(remover.callback(interacao(8), alerta=1))  # não é dele
+    assert "Não achei o alerta #1" in respostas[-1] and db.alerta_usuario(bot.con, 1)
+    asyncio.run(remover.callback(interacao(7), alerta=1))
+    assert "Parei o alerta #1" in respostas[-1] and db.alerta_usuario(bot.con, 1) is None
+
+
+def test_embed_alerta_pessoal():
+    from scentinel.fontes import Achado
+    from scentinel.formato import embed_alerta_usuario
+
+    k = Achado(titulo="Perfume Lattafa Khamrah EDP 100ml", url="https://ml/k", preco=239.9, loja="Mercado Livre",
+               preco_de=299.9)
+    e = embed_alerta_usuario({"id": 3, "consulta": "khamrah", "preco_max": 250, "ml": 100}, k, 100, 20)
+    assert e["title"] == "🔔 khamrah 100ml chegou no seu preço" and "**20% OFF**" in e["description"]
+    assert "Você pediu até R$ 250,00" in e["description"] and e["url"] == "https://ml/k"

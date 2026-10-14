@@ -31,6 +31,7 @@ NAO_REPOSTAR_POR = timedelta(days=7)  # mesmo anúncio a preço igual ou maior q
 PRECO_SUSPEITO = 0.35  # perfume do catálogo a menos de 35% do normal: quase certo que não é o produto
 TEMPO_MAX_AO_VIVO_S = 60  # /locate: loja que não respondeu nisso fica de fora da resposta
 PAUSA_LIMITE_MAX_HORAS = 2  # pausa por limite de velocidade (429) nunca passa disso
+INTERVALO_ALERTA_USUARIO = timedelta(hours=3)  # cada /alerta é pesquisado no máximo a cada 3 h
 
 
 _NAO_E_PERFUME = re.compile(
@@ -515,21 +516,30 @@ class Descoberta:
             return False
         return all(catalogo._tem_palavra(p, tokens) for p in palavras)
 
-    async def buscar_ao_vivo(self, nome, marca=None):
+    async def buscar_ao_vivo(self, nome, marca=None, na_fila=False):
         """Pesquisa nas lojas agora. Uma requisição por loja (em paralelo: nenhuma loja leva mais de uma).
-        Também guarda o que achar (histórico e /top), sem postar no canal."""
+        Não grava nada. na_fila=True (alerta pessoal, em segundo plano): espera a vez como a varredura,
+        uma loja por vez, e respeita qualquer pausa."""
         consulta = " ".join(x for x in (nome, marca) if x).strip()
         resultado = ResultadoAoVivo(consulta)
         resultado.links = [(f.nome, f.link_busca(consulta)) for f in self.fontes if hasattr(f, "link_busca")]
-        fontes = [f for f in self.fontes if not self.pausada_pro_locate(f)]
+        fontes = [f for f in self.fontes if not (self.pausada(f) if na_fila else self.pausada_pro_locate(f))]
         if not consulta or not fontes:
             return resultado
-        respostas = await asyncio.gather(
-            *(asyncio.wait_for(asyncio.to_thread(getattr(f, "buscar_ao_vivo", f.buscar), consulta),
-                               TEMPO_MAX_AO_VIVO_S) for f in fontes),
-            return_exceptions=True,
-        )
-        self.cacador._ultimo_request = time.monotonic()
+        if na_fila:
+            respostas = []
+            for f in fontes:
+                try:
+                    respostas.append(await self.cacador.na_vez(getattr(f, "buscar_ao_vivo", f.buscar), consulta))
+                except Exception as e:  # vira "loja falhou", igual no /locate
+                    respostas.append(e)
+        else:
+            respostas = await asyncio.gather(
+                *(asyncio.wait_for(asyncio.to_thread(getattr(f, "buscar_ao_vivo", f.buscar), consulta),
+                                   TEMPO_MAX_AO_VIVO_S) for f in fontes),
+                return_exceptions=True,
+            )
+            self.cacador._ultimo_request = time.monotonic()
         agora = self.cacador.relogio()
 
         conc = busca.detectar_concentracao(consulta)
@@ -578,6 +588,49 @@ class Descoberta:
                 unicas.append(o)
         resultado.ofertas = unicas  # o /locate só mostra: não grava nada (pesquisa sempre do zero)
         return resultado
+
+    # ------------------------------------------------------------
+    # 🔔 ALERTA PESSOAL (/alerta): "me marca quando o Sauvage ficar abaixo de R$ 500"
+    # ------------------------------------------------------------
+
+    @staticmethod
+    def melhor_do_alerta(res, ml=None):
+        """A oferta mais barata do /locate que serve pro alerta (do tamanho pedido, se pediu)."""
+        for achado, ml_oferta, pct in res.ofertas:
+            if ml and not (ml_oferta and abs(ml_oferta - ml) < 0.5):
+                continue
+            return achado, ml_oferta, pct
+        return None
+
+    async def avaliar_alerta(self, alerta, melhor, enviar, agora):
+        """Decide se avisa. Avisa quando chega no preço; de novo só se baixar mais; se o preço voltar a
+        subir acima do pedido, a próxima queda avisa outra vez. Devolve True se avisou."""
+        avisado = alerta["avisado_preco"]
+        avisou = False
+        if melhor and melhor[0].preco <= alerta["preco_max"]:
+            if avisado is None or melhor[0].preco < avisado - 0.01:
+                if await enviar(alerta, *melhor):
+                    avisado, avisou = melhor[0].preco, True
+        elif melhor:
+            avisado = None
+        db.marcar_alerta_usuario(self.con, alerta["id"], agora, avisado)
+        return avisou
+
+    async def checar_alertas_usuarios(self, enviar, max_buscas=10):
+        """Pesquisa os alertas mais atrasados (cada um no máximo a cada INTERVALO_ALERTA_USUARIO).
+        enviar(alerta, achado, ml, pct) -> bool. Devolve quantos avisou."""
+        agora = self.cacador.relogio()
+        avisos = 0
+        for alerta in db.alertas_usuario_vencidos(self.con, agora - INTERVALO_ALERTA_USUARIO, max_buscas):
+            if all(self.pausada(f) for f in self.fontes):
+                break
+            res = await self.buscar_ao_vivo(alerta["consulta"], na_fila=True)
+            if not res.lojas_ok:
+                continue  # loja fora do ar: tenta de novo na próxima rodada
+            if await self.avaliar_alerta(alerta, self.melhor_do_alerta(res, alerta["ml"]), enviar,
+                                         self.cacador.relogio()):
+                avisos += 1
+        return avisos
 
     # ------------------------------------------------------------
     # 🏆 Top do dia

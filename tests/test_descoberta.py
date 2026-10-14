@@ -857,3 +857,44 @@ def test_top_da_semana_usa_o_desconto_da_hora_do_post(amb):
     assert e["title"] == "🏆 Top da semana" and "**17% OFF**" in e["description"] and "ainda nesse preço" in e["description"]
     amb.relogio.agora += timedelta(days=8)
     assert amb.desc.top_semana() == []  # passou de 7 dias
+
+
+def test_alerta_pessoal_avisa_quando_chega_e_de_novo_so_se_baixar(amb):
+    alerta = db.criar_alerta_usuario(amb.con, 77, "khamrah", 250)
+    k = "https://a/khamrah"
+    for preco in (270, 240, 240, 230, 300, 245):
+        amb.a.programar("khamrah", achado("Perfume Lattafa Khamrah EDP 100ml", preco, "Loja A", k))
+    avisos = []
+
+    async def enviar(al, achado_, ml, pct):
+        avisos.append((al["usuario_id"], achado_.preco, ml))
+        return True
+
+    for _ in range(6):
+        rodar(amb.desc.checar_alertas_usuarios(enviar))
+        rodar(amb.desc.checar_alertas_usuarios(enviar))  # antes de 3 h: nem pesquisa de novo
+        amb.relogio.agora += timedelta(hours=3, minutes=1)
+    # 270 não; 240 avisa; 240 de novo não; 230 avisa (baixou); 300 rearma; 245 avisa
+    assert [p for _, p, _ in avisos] == [240, 230, 245] and avisos[0] == (77, 240, 100)
+    assert amb.a.chamadas.count("khamrah") == 6
+    assert db.alerta_usuario(amb.con, alerta["id"])["avisado_preco"] == 245
+
+
+def test_alerta_pessoal_respeita_tamanho_e_pausa(amb):
+    db.criar_alerta_usuario(amb.con, 77, "khamrah", 250, ml=100)
+    amb.a.programar("khamrah", achado("Perfume Lattafa Khamrah EDP 30ml", 90, "Loja A", "https://a/k30"),
+                    achado("Perfume Lattafa Khamrah EDP 100ml", 260, "Loja A", "https://a/k100"))
+    avisos = []
+
+    async def enviar(al, achado_, ml, pct):
+        avisos.append(achado_.preco)
+        return True
+
+    rodar(amb.desc.checar_alertas_usuarios(enviar))
+    assert avisos == []  # o de 30ml é barato, mas pediu 100ml
+    amb.relogio.agora += timedelta(hours=4)
+    for fonte in amb.desc.fontes:
+        amb.desc._fonte_pausada_ate[fonte.id] = amb.relogio.agora + timedelta(hours=1)
+    antes = len(amb.a.chamadas)
+    rodar(amb.desc.checar_alertas_usuarios(enviar))
+    assert len(amb.a.chamadas) == antes  # tudo pausado: não força
