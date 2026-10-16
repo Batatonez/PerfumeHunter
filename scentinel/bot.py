@@ -149,6 +149,34 @@ async def escolher_pct(interaction, pct):
     await interaction.response.send_message(texto_preferencia(estilos, pct), ephemeral=True)
 
 
+async def tirar_cargos(interaction):
+    """Botão "tirar meus cargos": tira todos os cargos de estilo da pessoa e para de marcar ela."""
+    membro = interaction.user
+    nomes = set(CARGOS.values())
+    meus = [c for c in getattr(membro, "roles", []) if getattr(c, "name", None) in nomes]
+    try:
+        if meus:
+            await membro.remove_roles(*meus, reason="botão de cargos do Scentinel")
+    except discord.Forbidden:
+        await interaction.response.send_message(
+            "❌ Me falta a permissão **Gerenciar cargos** (ou o meu cargo está abaixo desses no servidor). "
+            "Avisa um admin.", ephemeral=True)
+        return
+    db.salvar_preferencia(interaction.client.con, membro.id, estilos=[])
+    texto = (f"🔕 Tirei {', '.join(c.name for c in meus)}. Não te marco mais em nada." if meus
+             else "🔕 Você não tinha nenhum cargo de estilo. Não te marco em nada.")
+    await interaction.response.send_message(texto, ephemeral=True)
+
+
+class BotaoTirarCargos(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Tirar meus cargos", emoji="🔕", style=discord.ButtonStyle.danger,
+                         custom_id="scentinel:cargo:tirar-todos", row=2)
+
+    async def callback(self, interaction: discord.Interaction):
+        await tirar_cargos(interaction)
+
+
 class BotaoCargo(discord.ui.Button):
     def __init__(self, chave):
         super().__init__(label=CARGOS[chave], style=discord.ButtonStyle.secondary,
@@ -179,6 +207,7 @@ class BotoesCargos(discord.ui.View):
             self.add_item(BotaoCargo(chave))
         for pct in PCTS:
             self.add_item(BotaoPct(pct))
+        self.add_item(BotaoTirarCargos())
 
 
 def embed_cargos():
@@ -192,7 +221,8 @@ def embed_cargos():
             "🕌 **Árabe**: Lattafa, Armaf, Afnan, Al Haramain...\n"
             "🇧🇷 **Nacional**: O Boticário, Natura, Eudora...\n"
             "🔥 **Todas as promos**: qualquer estilo\n\n"
-            f"**2. Embaixo, a partir de quantos % OFF** te marco (se não escolher: {PCT_PADRAO}%).\n\n"
+            f"**2. Embaixo, a partir de quantos % OFF** te marco (se não escolher: {PCT_PADRAO}%).\n"
+            "🔕 **Tirar meus cargos**: sai de tudo de uma vez.\n\n"
             "Aí, quando sair post com esse desconto num estilo seu, eu te marco. No máximo 1 marcação a cada "
             "30 min (promo maior passa na frente), e nunca 2 vezes pelo mesmo anúncio."
         ),

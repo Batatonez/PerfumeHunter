@@ -272,7 +272,7 @@ Reinicie com a tampa fechada (`sudo reboot`). Espere uns 2 minutos e veja se o b
 | `/send numero [estilo] [ate] [desconto]` | admin | manda agora até N ofertas no canal (até 20; novas primeiro, sem repetir perfume no lote). Filtros opcionais: estilo (✨ Designer, 💎 Nicho, 🕌 Árabe, 🇧🇷 Nacional, 🧴 Outras marcas), preço máximo e % OFF mínimo. Sem filtro, vai qualquer uma |
 | `/alerta criar perfume preco [ml]` | todo mundo | alerta de preço só seu: o bot pesquisa a cada ~3 h e te marca no canal quando chegar no preço (de novo só se baixar mais). Até 5 por pessoa |
 | `/alerta lista` · `/alerta remover` | todo mundo | ver e parar os seus alertas |
-| `/cargos` | admin | cria os cargos ✨ Designer, 💎 Nicho, 🕌 Árabe, 🇧🇷 Nacional e 🔥 Todas as promos e manda os botões (fixa a mensagem): em cima a pessoa escolhe os estilos, embaixo a partir de quantos % OFF quer ser marcada (10% a 50%) |
+| `/cargos` | admin | cria os cargos ✨ Designer, 💎 Nicho, 🕌 Árabe, 🇧🇷 Nacional e 🔥 Todas as promos e manda os botões (fixa a mensagem): em cima a pessoa escolhe os estilos, embaixo a partir de quantos % OFF quer ser marcada (10% a 50%), e tem 🔕 Tirar meus cargos pra sair de tudo |
 | `/catalogo novos` · `remover` · `rodar` | dono | o que o catálogo automático pôs, tirar um (não volta mais), rodar a análise agora |
 | `/atualizar` | dono | igual ao `scentinel-update`, pelo Discord: baixa, testa e reinicia (sem sudo) |
 | `/clear [quantidade]` | admin | apaga as mensagens do canal (todas ou as últimas N; as fixadas ficam), com confirmação |

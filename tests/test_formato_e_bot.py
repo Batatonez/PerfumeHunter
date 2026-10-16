@@ -553,8 +553,9 @@ def _membro_falso(guild, *nomes):
     async def add_roles(cargo, **kw):
         membro.roles.append(cargo)
 
-    async def remove_roles(cargo, **kw):
-        membro.roles.remove(cargo)
+    async def remove_roles(*cargos, **kw):
+        for cargo in cargos:
+            membro.roles.remove(cargo)
 
     membro.add_roles, membro.remove_roles = add_roles, remove_roles
     return membro
@@ -589,6 +590,16 @@ def test_botoes_de_estilo_e_porcentagem_guardam_a_escolha():
     assert db.preferencias_ativas(con) == []
     asyncio.run(alternar_cargo_(interacao, "designer"))  # cargo que não existe no servidor
     assert "sumiu" in respostas[-1][0]
+    # "tirar meus cargos": sai de tudo de uma vez
+    from scentinel.bot import tirar_cargos
+
+    asyncio.run(alternar_cargo_(interacao, "nicho"))
+    asyncio.run(alternar_cargo_(interacao, "arabe"))
+    asyncio.run(tirar_cargos(interacao))
+    assert membro.roles == [] and db.preferencias_ativas(con) == []
+    assert "Tirei 💎 Nicho, 🕌 Árabe" in respostas[-1][0]
+    asyncio.run(tirar_cargos(interacao))
+    assert "não tinha nenhum cargo" in respostas[-1][0]
 
 
 def alternar_cargo_(interacao, chave):
@@ -627,7 +638,9 @@ def test_comando_cargos_cria_o_que_falta_e_manda_botoes():
     assert isinstance(enviados[0]["view"], BotoesCargos) and "Criei" in edicoes[-1]
     botoes = enviados[0]["view"].children
     assert {b.custom_id for b in botoes} == ({f"scentinel:cargo:{k}" for k in CARGOS}
-                                             | {f"scentinel:pct:{p}" for p in PCTS})
+                                             | {f"scentinel:pct:{p}" for p in PCTS}
+                                             | {"scentinel:cargo:tirar-todos"})
+    assert [b.label for b in botoes if b.row == 2] == ["Tirar meus cargos"]
     # estilos na fileira de cima, % na de baixo, de 10 em 10
     assert [b.label for b in botoes if b.row == 1] == ["10%+ OFF", "20%+ OFF", "30%+ OFF", "40%+ OFF", "50%+ OFF"]
     assert all(b.row == 0 for b in botoes if b.custom_id.startswith("scentinel:cargo:"))
