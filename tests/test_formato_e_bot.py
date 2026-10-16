@@ -643,7 +643,7 @@ def test_comando_cargos_cria_o_que_falta_e_manda_botoes():
     assert [b.label for b in botoes if b.row == 2] == ["Tirar meus cargos"]
     # estilos na fileira de cima, % na de baixo, de 10 em 10
     assert [b.label for b in botoes if b.row == 1] == ["10%+ OFF", "20%+ OFF", "30%+ OFF", "40%+ OFF", "50%+ OFF"]
-    assert all(b.row == 0 for b in botoes if b.custom_id.startswith("scentinel:cargo:"))
+    assert [b.label for b in botoes if b.row == 0] == list(CARGOS.values())
 
 
 def test_post_marca_quem_escolheu_e_o_dono_continua_igual():
