@@ -21,10 +21,16 @@ log = logging.getLogger("scentinel")
 # + gerenciar cargos (/cargos)
 PERMISSOES = 1024 | 2048 | 8192 | 16384 | 65536 | 131072 | 268435456
 
-# Cargos de estilo: quem tem o cargo é marcado nas promos daquele estilo (o nome do cargo é o rótulo do estilo)
+# Cargos de estilo (fileira de cima do /cargos) + a partir de quantos % OFF marcar (fileira de baixo).
+# O nome do cargo é o rótulo do estilo. Quem marca é o bot, pessoa por pessoa, com o que ela escolheu nos botões
+# (o Discord não sabe marcar "quem tem o cargo Árabe E quer 30%+").
 CARGO_TODAS = "todas"
 CARGOS = {**catalogo.CATEGORIAS, CARGO_TODAS: "🔥 Todas as promos"}
-CARGO_INTERVALO = dt.timedelta(minutes=30)  # o mesmo cargo é marcado no máximo 1 vez a cada 30 min
+PCTS = (10, 20, 30, 40, 50)
+PCT_PADRAO = 20  # sem escolher a %: a partir de 20% OFF (onde o bot já chama de promo)
+PING_INTERVALO = dt.timedelta(minutes=30)  # cada pessoa no máximo 1 marcação a cada 30 min (promo maior passa)
+PING_MESMO_ANUNCIO = dt.timedelta(hours=24)  # a vitrine pode repostar a promo: não marca de novo por ela
+MAX_MENCOES = 80  # a mensagem do Discord tem 2000 caracteres
 
 
 def link_convite(application_id):
@@ -64,59 +70,115 @@ def horarios_vitrine(minutos, fuso_nome):
     return [dt.time(m // 60, m % 60, tzinfo=tz) for m in range(0, 24 * 60, passo)]
 
 
-def cargos_da_oferta(guild, oferta, ultimos, agora, nivel_minimo=2):
-    """Cargos pra marcar numa promo da busca automática: o do estilo + "Todas as promos".
-    `ultimos` (cargo.id -> último ping) é atualizado: cada cargo no máximo 1 vez a cada 30 min."""
-    nivel = oferta.avaliacao.nivel
-    if guild is None or oferta.origem != "descoberta" or not nivel or nivel.nivel < nivel_minimo:
+def estilos_do_membro(membro):
+    """Chaves dos estilos que a pessoa tem como cargo agora."""
+    nomes = {getattr(c, "name", None) for c in getattr(membro, "roles", [])}
+    return [chave for chave, nome in CARGOS.items() if nome in nomes]
+
+
+def texto_preferencia(estilos, pct):
+    if not estilos:
+        return ("🔕 Você não está em nenhum estilo agora: não te marco. Escolhe um na fileira de cima "
+                "(ou 🔥 Todas as promos).")
+    nomes = ", ".join(CARGOS[e] for e in CARGOS if e in estilos)
+    return (f"🔔 Te marco em promo de **{pct}% OFF ou mais** de: {nomes}.\n"
+            "Estilo: fileira de cima (clica de novo pra sair) · %: fileira de baixo.")
+
+
+def quem_marcar(prefs, oferta, ultimos, agora, excluir=()):
+    """IDs de quem pediu pra ser marcado nessa oferta: estilo dela (ou 🔥 Todas) e % OFF >= o mínimo da pessoa.
+    Cada pessoa no máximo 1 vez a cada 30 min (promo maior que a da última marcação passa na frente) e nunca 2
+    vezes pelo mesmo anúncio em 24 h. `ultimos` (id -> última marcação) é atualizado."""
+    if oferta.origem != "descoberta" or not formato.tem_desconto(oferta):
         return []
-    nomes = [CARGOS[CARGO_TODAS]] + ([CARGOS[oferta.estilo]] if oferta.estilo in CARGOS else [])
-    cargos = []
-    for nome in nomes:
-        cargo = discord.utils.get(guild.roles, name=nome)
-        if cargo and (cargo.id not in ultimos or agora - ultimos[cargo.id] >= CARGO_INTERVALO):
-            ultimos[cargo.id] = agora
-            cargos.append(cargo)
-    return cargos
+    pct = oferta.avaliacao.pct
+    ids = []
+    for p in prefs:
+        uid = p["usuario_id"]
+        estilos = set(filter(None, (p["estilos"] or "").split(",")))
+        if uid in excluir or (CARGO_TODAS not in estilos and oferta.estilo not in estilos):
+            continue
+        if pct < (p["pct_min"] or PCT_PADRAO):
+            continue
+        u = ultimos.setdefault(uid, {"quando": None, "pct": 0, "anuncios": {}})
+        u["anuncios"] = {a: q for a, q in u["anuncios"].items() if agora - q < PING_MESMO_ANUNCIO}
+        if oferta.anuncio_id in u["anuncios"]:
+            continue
+        if u["quando"] and agora - u["quando"] < PING_INTERVALO and pct <= u["pct"]:
+            continue
+        u.update(quando=agora, pct=pct)
+        u["anuncios"][oferta.anuncio_id] = agora
+        ids.append(uid)
+        if len(ids) >= MAX_MENCOES:
+            break
+    return ids
 
 
-async def alternar_cargo(interaction, nome):
-    """Botão do /cargos: tem o cargo -> tira; não tem -> dá."""
+async def alternar_cargo(interaction, chave):
+    """Botão de estilo: tem o cargo -> tira; não tem -> dá. Guarda a escolha pra marcar certo."""
+    nome = CARGOS[chave]
     cargo = discord.utils.get(interaction.guild.roles, name=nome) if interaction.guild else None
     if not cargo:
         await interaction.response.send_message("Esse cargo sumiu 🤔 Um admin pode recriar com `/cargos`.",
                                                 ephemeral=True)
         return
     membro = interaction.user
+    estilos = set(estilos_do_membro(membro))
     try:
         if any(c.id == cargo.id for c in getattr(membro, "roles", [])):
             await membro.remove_roles(cargo, reason="botão de cargos do Scentinel")
-            texto = f"🔕 Pronto, tirei o **{nome}**: não te marco mais nessas promos."
+            estilos.discard(chave)
+            texto = f"🔕 Tirei o **{nome}**.\n"
         else:
             await membro.add_roles(cargo, reason="botão de cargos do Scentinel")
-            texto = f"🔔 Pronto! Agora te marco nas promos de **{nome}**. (Clica de novo pra sair.)"
+            estilos.add(chave)
+            texto = f"✅ Te dei o **{nome}**.\n"
     except discord.Forbidden:
-        texto = ("❌ Me falta a permissão **Gerenciar cargos** (ou o meu cargo está abaixo desse no servidor). "
-                 "Avisa um admin.")
-    await interaction.response.send_message(texto, ephemeral=True)
+        await interaction.response.send_message(
+            "❌ Me falta a permissão **Gerenciar cargos** (ou o meu cargo está abaixo desse no servidor). "
+            "Avisa um admin.", ephemeral=True)
+        return
+    pref = db.salvar_preferencia(interaction.client.con, membro.id, estilos=estilos)
+    await interaction.response.send_message(texto + texto_preferencia(estilos, pref["pct_min"]), ephemeral=True)
+
+
+async def escolher_pct(interaction, pct):
+    """Botão de %: a partir de quanto OFF marcar (os estilos vêm dos cargos que a pessoa já tem)."""
+    estilos = estilos_do_membro(interaction.user)
+    db.salvar_preferencia(interaction.client.con, interaction.user.id, estilos=estilos, pct_min=pct)
+    await interaction.response.send_message(texto_preferencia(estilos, pct), ephemeral=True)
 
 
 class BotaoCargo(discord.ui.Button):
-    def __init__(self, chave, nome):
-        super().__init__(label=nome, style=discord.ButtonStyle.secondary, custom_id=f"scentinel:cargo:{chave}")
-        self.nome = nome
+    def __init__(self, chave):
+        super().__init__(label=CARGOS[chave], style=discord.ButtonStyle.secondary,
+                         custom_id=f"scentinel:cargo:{chave}", row=0)
+        self.chave = chave
 
     async def callback(self, interaction: discord.Interaction):
-        await alternar_cargo(interaction, self.nome)
+        await alternar_cargo(interaction, self.chave)
+
+
+class BotaoPct(discord.ui.Button):
+    def __init__(self, pct):
+        super().__init__(label=f"{pct}%+ OFF", style=discord.ButtonStyle.primary,
+                         custom_id=f"scentinel:pct:{pct}", row=1)
+        self.pct = pct
+
+    async def callback(self, interaction: discord.Interaction):
+        await escolher_pct(interaction, self.pct)
 
 
 class BotoesCargos(discord.ui.View):
-    """Botões fixos (continuam funcionando depois que o bot reinicia: custom_id fixo + timeout=None)."""
+    """Botões fixos (continuam funcionando depois que o bot reinicia: custom_id fixo + timeout=None).
+    Fileira de cima: estilos. Fileira de baixo: a partir de quantos % OFF."""
 
     def __init__(self):
         super().__init__(timeout=None)
-        for chave, nome in CARGOS.items():
-            self.add_item(BotaoCargo(chave, nome))
+        for chave in CARGOS:
+            self.add_item(BotaoCargo(chave))
+        for pct in PCTS:
+            self.add_item(BotaoPct(pct))
 
 
 def embed_cargos():
@@ -124,14 +186,15 @@ def embed_cargos():
         "title": "🔔 Quer ser marcado nas promos?",
         "color": formato.COR_ALVO,
         "description": (
-            "Clica no estilo que você curte e eu te marco quando aparecer promo boa dele "
-            "(no máximo 1 marcação a cada 30 min por estilo). Clica de novo pra sair.\n\n"
+            "**1. Em cima, os estilos que você curte** (clica de novo pra sair):\n"
             "✨ **Designer**: Dior, Chanel, Armani, Paco Rabanne...\n"
             "💎 **Nicho**: Creed, Parfums de Marly, Xerjoff, Initio...\n"
             "🕌 **Árabe**: Lattafa, Armaf, Afnan, Al Haramain...\n"
             "🇧🇷 **Nacional**: O Boticário, Natura, Eudora...\n"
-            "🔥 **Todas as promos**: qualquer promo boa, de qualquer estilo\n\n"
-            "Os posts da vitrine (de 15 em 15 min) não marcam ninguém."
+            "🔥 **Todas as promos**: qualquer estilo\n\n"
+            f"**2. Embaixo, a partir de quantos % OFF** te marco (se não escolher: {PCT_PADRAO}%).\n\n"
+            "Aí, quando sair post com esse desconto num estilo seu, eu te marco. No máximo 1 marcação a cada "
+            "30 min (promo maior passa na frente), e nunca 2 vezes pelo mesmo anúncio."
         ),
     }
 
@@ -152,7 +215,7 @@ class BotScentinel(discord.Client):
         self.con = con
         self.reiniciar = False  # /atualizar: sai com erro de propósito pro systemd religar na versão nova
         self.versao = None  # commit rodando (o rodar() preenche ao ligar)
-        self._ping_cargo = {}  # cargo.id -> última vez que foi marcado
+        self._ping_usuario = {}  # quem já foi marcado, quando e por qual anúncio (quem_marcar)
         self.trava_atualizar = asyncio.Lock()
         self.trava_autocatalogo = asyncio.Lock()
         self.tree = app_commands.CommandTree(self)
@@ -244,11 +307,8 @@ class BotScentinel(discord.Client):
                         "Reconvide o bot com: %s", link_convite(self.application_id),
                     )
             conteudo, permitidas = montar_mencao(mencao, self.segredos.dono_id, pode)
-            cargos = cargos_da_oferta(getattr(canal, "guild", None), oferta, self._ping_cargo, db.agora_utc(),
-                                      self.cfg.descoberta.nivel_minimo)
-            if cargos:
-                conteudo = " ".join([conteudo or ""] + [c.mention for c in cargos]).strip()
-                permitidas = permitidas.merge(discord.AllowedMentions(roles=cargos))
+            ja_marcado = {self.segredos.dono_id} if conteudo else set()
+            conteudo, permitidas = self._com_pessoas(oferta, conteudo, permitidas, ja_marcado)
             embed = discord.Embed.from_dict(formato.embed_alerta(oferta, self.cfg.fuso))
             await canal.send(content=conteudo, embed=embed, allowed_mentions=permitidas)
             return True
@@ -256,11 +316,22 @@ class BotScentinel(discord.Client):
             log.exception("falha ao mandar alerta")
             return False
 
+    def _com_pessoas(self, oferta, conteudo, permitidas, excluir=()):
+        """Junta na mensagem quem pediu (/cargos) pra ser marcado nessa oferta."""
+        ids = quem_marcar(db.preferencias_ativas(self.con), oferta, self._ping_usuario, db.agora_utc(), excluir)
+        if not ids:
+            return conteudo, permitidas
+        conteudo = " ".join([conteudo or ""] + [f"<@{i}>" for i in ids]).strip()
+        if permitidas.users is not True:  # True já deixa marcar todo mundo que está no texto
+            permitidas = permitidas.merge(discord.AllowedMentions(users=[discord.Object(id=i) for i in ids]))
+        return conteudo, permitidas
+
     async def enviar_vitrine(self, oferta):
         try:
             canal = await self.canal()
             embed = discord.Embed.from_dict(formato.embed_vitrine(oferta, self.cfg.fuso))
-            await canal.send(embed=embed, allowed_mentions=discord.AllowedMentions.none())
+            conteudo, permitidas = self._com_pessoas(oferta, None, discord.AllowedMentions.none())
+            await canal.send(content=conteudo, embed=embed, allowed_mentions=permitidas)
             return True
         except discord.DiscordException:
             log.exception("falha ao mandar a vitrine")

@@ -512,37 +512,43 @@ def _guild_falsa(*nomes):
     return SimpleNamespace(roles=roles, create_role=create_role, criados=criados)
 
 
-def test_cargos_marcados_na_promo():
+def test_quem_marcar_por_estilo_e_porcentagem():
     from datetime import timedelta
 
-    from scentinel.bot import cargos_da_oferta
+    from scentinel.bot import quem_marcar
 
-    guild = _guild_falsa("✨ Designer", "🕌 Árabe", "🔥 Todas as promos")
-    agora, ultimos = db.agora_utc(), {}
-    promo = oferta_exemplo(origem="descoberta", estilo="arabe")
-    assert [c.name for c in cargos_da_oferta(guild, promo, ultimos, agora)] == ["🔥 Todas as promos", "🕌 Árabe"]
-    # 10 min depois, outra promo árabe: não marca de novo (no máximo 1 vez a cada 30 min)
-    assert cargos_da_oferta(guild, promo, ultimos, agora + timedelta(minutes=10)) == []
-    assert [c.name for c in cargos_da_oferta(guild, promo, ultimos, agora + timedelta(minutes=31))] == [
-        "🔥 Todas as promos", "🕌 Árabe"]
-    # vitrine/sem nível, anúncio do /add e nível baixo não marcam ninguém
-    assert cargos_da_oferta(guild, oferta_exemplo(origem="descoberta", estilo="arabe",
-                                                  avaliacao=Avaliacao(1, 2, "loja", 50, None)), {}, agora) == []
-    assert cargos_da_oferta(guild, oferta_exemplo(origem="manual", estilo="arabe"), {}, agora) == []
-    baixo = Nivel(1, "Cheirinho", "🟢", 10, 0)
-    assert cargos_da_oferta(guild, oferta_exemplo(origem="descoberta", avaliacao=Avaliacao(1, 2, "x", 12, baixo)),
-                            {}, agora) == []
+    agora = db.agora_utc()
+    prefs = [
+        {"usuario_id": 1, "estilos": "arabe", "pct_min": 10},
+        {"usuario_id": 2, "estilos": "arabe,nicho", "pct_min": 40},
+        {"usuario_id": 3, "estilos": "todas", "pct_min": 20},
+        {"usuario_id": 4, "estilos": "designer", "pct_min": 10},
+        {"usuario_id": 5, "estilos": "todas", "pct_min": 10},
+    ]
+
+    def promo(pct, anuncio_id=1, estilo="arabe", origem="descoberta"):
+        return oferta_exemplo(anuncio_id=anuncio_id, origem=origem, estilo=estilo,
+                              avaliacao=Avaliacao(100, 200, "historico", pct, None))
+
+    ultimos = {}
+    # 25% OFF árabe: quem quer árabe com 10%, e quem quer todas com 10%/20%; o de 40% não; o de designer não
+    assert quem_marcar(prefs, promo(25), ultimos, agora, excluir={5}) == [1, 3]
+    # 10 min depois, outra árabe de 22%: ninguém de novo (1 marcação a cada 30 min)...
+    assert quem_marcar(prefs, promo(22, anuncio_id=2), ultimos, agora + timedelta(minutes=10)) == [5]
+    # ...mas uma maior (45%) passa na frente pra todo mundo, e aí o de 40% também entra
+    assert quem_marcar(prefs, promo(45, anuncio_id=3), ultimos, agora + timedelta(minutes=12)) == [1, 2, 3, 5]
+    # o mesmo anúncio (vitrine repostando) não marca de novo em 24 h, nem com o intervalo vencido
+    assert quem_marcar(prefs, promo(45, anuncio_id=3), ultimos, agora + timedelta(hours=2)) == []
+    # sem desconto, do /add (manual) ou estilo desconhecido (só quem quer "todas")
+    assert quem_marcar(prefs, promo(0, anuncio_id=9), {}, agora) == []
+    assert quem_marcar(prefs, promo(60, anuncio_id=9, origem="manual"), {}, agora) == []
+    assert quem_marcar(prefs, promo(30, anuncio_id=9, estilo=None), {}, agora) == [3, 5]
 
 
-def test_botao_de_cargo_da_e_tira():
-    import asyncio
+def _membro_falso(guild, *nomes):
     from types import SimpleNamespace
 
-    from scentinel.bot import alternar_cargo
-
-    guild = _guild_falsa("💎 Nicho")
-    membro = SimpleNamespace(roles=[])
-    respostas = []
+    membro = SimpleNamespace(id=77, roles=[r for r in guild.roles if r.name in nomes])
 
     async def add_roles(cargo, **kw):
         membro.roles.append(cargo)
@@ -550,24 +556,52 @@ def test_botao_de_cargo_da_e_tira():
     async def remove_roles(cargo, **kw):
         membro.roles.remove(cargo)
 
+    membro.add_roles, membro.remove_roles = add_roles, remove_roles
+    return membro
+
+
+def test_botoes_de_estilo_e_porcentagem_guardam_a_escolha():
+    import asyncio
+    from types import SimpleNamespace
+
+    from scentinel.bot import escolher_pct
+
+    guild = _guild_falsa("💎 Nicho", "🕌 Árabe")
+    membro = _membro_falso(guild)
+    con = db.conectar(":memory:")
+    respostas = []
+
     async def responder(texto, **kw):
         respostas.append((texto, kw))
 
-    membro.add_roles, membro.remove_roles = add_roles, remove_roles
-    interacao = SimpleNamespace(guild=guild, user=membro, response=SimpleNamespace(send_message=responder))
-    asyncio.run(alternar_cargo(interacao, "💎 Nicho"))
-    assert membro.roles and "Agora te marco" in respostas[-1][0] and respostas[-1][1]["ephemeral"]
-    asyncio.run(alternar_cargo(interacao, "💎 Nicho"))
-    assert membro.roles == [] and "tirei" in respostas[-1][0]
-    asyncio.run(alternar_cargo(interacao, "🕌 Árabe"))
+    interacao = SimpleNamespace(guild=guild, user=membro, client=SimpleNamespace(con=con),
+                                response=SimpleNamespace(send_message=responder))
+    asyncio.run(alternar_cargo_(interacao, "nicho"))
+    assert membro.roles and respostas[-1][1]["ephemeral"]
+    assert "**20% OFF ou mais** de: 💎 Nicho" in respostas[-1][0]  # sem escolher %: 20%
+    asyncio.run(escolher_pct(interacao, 40))
+    assert db.preferencia(con, 77)["pct_min"] == 40 and "**40% OFF ou mais** de: 💎 Nicho" in respostas[-1][0]
+    asyncio.run(alternar_cargo_(interacao, "arabe"))
+    assert db.preferencia(con, 77)["estilos"] == "arabe,nicho" and "de: 💎 Nicho, 🕌 Árabe" in respostas[-1][0]
+    asyncio.run(alternar_cargo_(interacao, "nicho"))
+    asyncio.run(alternar_cargo_(interacao, "arabe"))
+    assert db.preferencia(con, 77)["estilos"] == "" and "não te marco" in respostas[-1][0]
+    assert db.preferencias_ativas(con) == []
+    asyncio.run(alternar_cargo_(interacao, "designer"))  # cargo que não existe no servidor
     assert "sumiu" in respostas[-1][0]
+
+
+def alternar_cargo_(interacao, chave):
+    from scentinel.bot import alternar_cargo
+
+    return alternar_cargo(interacao, chave)
 
 
 def test_comando_cargos_cria_o_que_falta_e_manda_botoes():
     import asyncio
     from types import SimpleNamespace
 
-    from scentinel.bot import CARGOS, BotScentinel, BotoesCargos, registrar_comandos
+    from scentinel.bot import CARGOS, PCTS, BotScentinel, BotoesCargos, registrar_comandos
 
     bot = BotScentinel(config.carregar_config(), config.Segredos("x", 1, 2, 3), db.conectar(":memory:"))
     registrar_comandos(bot.tree)
@@ -590,34 +624,46 @@ def test_comando_cargos_cria_o_que_falta_e_manda_botoes():
                                 response=SimpleNamespace(defer=defer))
     asyncio.run(cmd.callback(interacao))
     assert [n for n, _ in guild.criados] == [n for n in CARGOS.values() if n != "✨ Designer"]
-    assert all(kw["mentionable"] for _, kw in guild.criados)
     assert isinstance(enviados[0]["view"], BotoesCargos) and "Criei" in edicoes[-1]
-    ids = {b.custom_id for b in enviados[0]["view"].children}
-    assert ids == {f"scentinel:cargo:{k}" for k in CARGOS}
+    botoes = enviados[0]["view"].children
+    assert {b.custom_id for b in botoes} == ({f"scentinel:cargo:{k}" for k in CARGOS}
+                                             | {f"scentinel:pct:{p}" for p in PCTS})
+    # estilos na fileira de cima, % na de baixo, de 10 em 10
+    assert [b.label for b in botoes if b.row == 1] == ["10%+ OFF", "20%+ OFF", "30%+ OFF", "40%+ OFF", "50%+ OFF"]
+    assert all(b.row == 0 for b in botoes if b.custom_id.startswith("scentinel:cargo:"))
 
 
-def test_alerta_de_promo_marca_o_cargo():
+def test_post_marca_quem_escolheu_e_o_dono_continua_igual():
     import asyncio
     from types import SimpleNamespace
 
     from scentinel.bot import BotScentinel
 
     bot = BotScentinel(config.carregar_config(), config.Segredos("x", 1, 2, 3), db.conectar(":memory:"))
-    guild = _guild_falsa("🕌 Árabe", "🔥 Todas as promos")
+    db.salvar_preferencia(bot.con, 50, estilos=["arabe"], pct_min=30)
+    db.salvar_preferencia(bot.con, 3, estilos=["todas"], pct_min=10)  # o dono também escolheu
     enviados = []
 
     async def send(**kw):
         enviados.append(kw)
 
     async def canal():
-        return SimpleNamespace(send=send, guild=guild)
+        return SimpleNamespace(send=send, guild=None)
 
     bot.canal = canal
+    # promo de 34% árabe com o ping do dono (nível 4/5): o dono não é marcado 2 vezes
     assert asyncio.run(bot.enviar_alerta(oferta_exemplo(origem="descoberta", estilo="arabe"), mencao="dono"))
+    assert enviados[-1]["content"] == "<@3> <@50>" and enviados[-1]["allowed_mentions"].users is True
+    # vitrine de 12% OFF: só quem pediu 10%+ (o dono, em "todas"); quem pediu 30% não
+    vitrine = oferta_exemplo(anuncio_id=2, origem="descoberta", estilo="arabe",
+                             avaliacao=Avaliacao(100, 114, "historico", 12, None))
+    assert asyncio.run(bot.enviar_vitrine(vitrine))
     kw = enviados[-1]
-    assert kw["content"] == "<@3> <@&101> <@&100>"
-    assert kw["allowed_mentions"].users is True and [c.name for c in kw["allowed_mentions"].roles] == [
-        "🔥 Todas as promos", "🕌 Árabe"]
+    assert kw["content"] == "<@3>" and [u.id for u in kw["allowed_mentions"].users] == [3]
+    # vitrine sem desconto: ninguém
+    assert asyncio.run(bot.enviar_vitrine(oferta_exemplo(anuncio_id=4, origem="descoberta", estilo="arabe",
+                                                         avaliacao=Avaliacao(100, None, None, 0, None))))
+    assert enviados[-1]["content"] is None
 
 
 def test_catalogo_automatico_pelo_bot():

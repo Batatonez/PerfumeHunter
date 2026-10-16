@@ -272,7 +272,7 @@ Reinicie com a tampa fechada (`sudo reboot`). Espere uns 2 minutos e veja se o b
 | `/send numero [estilo] [ate] [desconto]` | admin | manda agora até N ofertas no canal (até 20; novas primeiro, sem repetir perfume no lote). Filtros opcionais: estilo (✨ Designer, 💎 Nicho, 🕌 Árabe, 🇧🇷 Nacional, 🧴 Outras marcas), preço máximo e % OFF mínimo. Sem filtro, vai qualquer uma |
 | `/alerta criar perfume preco [ml]` | todo mundo | alerta de preço só seu: o bot pesquisa a cada ~3 h e te marca no canal quando chegar no preço (de novo só se baixar mais). Até 5 por pessoa |
 | `/alerta lista` · `/alerta remover` | todo mundo | ver e parar os seus alertas |
-| `/cargos` | admin | cria os cargos ✨ Designer, 💎 Nicho, 🕌 Árabe, 🇧🇷 Nacional e 🔥 Todas as promos e manda os botões pra galera entrar/sair (fixa a mensagem) |
+| `/cargos` | admin | cria os cargos ✨ Designer, 💎 Nicho, 🕌 Árabe, 🇧🇷 Nacional e 🔥 Todas as promos e manda os botões (fixa a mensagem): em cima a pessoa escolhe os estilos, embaixo a partir de quantos % OFF quer ser marcada (10% a 50%) |
 | `/catalogo novos` · `remover` · `rodar` | dono | o que o catálogo automático pôs, tirar um (não volta mais), rodar a análise agora |
 | `/atualizar` | dono | igual ao `scentinel-update`, pelo Discord: baixa, testa e reinicia (sem sudo) |
 | `/clear [quantidade]` | admin | apaga as mensagens do canal (todas ou as últimas N; as fixadas ficam), com confirmação |
@@ -345,7 +345,7 @@ O que ele faz com o que acha:
 - **Posta só o que vale:** a partir do nível 2 (20% abaixo da referência), ou abaixo do "preço bom" do perfume. Se o mesmo perfume e tamanho estiver mais barato em outra loja, posta só o mais barato. No máximo 10 posts por hora.
 - **% OFF em todo post:** título e linha do preço mostram quantos % abaixo da referência está (quando tem referência).
 - **🏆 Top do dia** às 19h com os 5 melhores (um por perfume). `/top` mostra na hora. **Domingo** sai o **🏆 Top da semana** no lugar: os maiores % OFF que passaram no canal em 7 dias, dizendo se ainda está naquele preço.
-- **Cargos de estilo:** promo boa (nível 2+) marca o cargo do estilo dela (✨ Designer, 💎 Nicho, 🕌 Árabe, 🇧🇷 Nacional) e o 🔥 Todas as promos, cada cargo no máximo 1 vez a cada 30 min. Os posts da vitrine não marcam ninguém. Perfume fora do catálogo ganha o estilo pela marca.
+- **Marcação por estilo e %:** nos botões do `/cargos` cada pessoa escolhe os estilos (✨ Designer, 💎 Nicho, 🕌 Árabe, 🇧🇷 Nacional, 🔥 Todas) e a partir de quantos % OFF quer ser marcada (10%, 20%... 50%; sem escolher, 20%). Todo post (promo ou vitrine) com esse desconto num estilo dela marca a pessoa: no máximo 1 vez a cada 30 min (promo maior passa na frente) e nunca 2 vezes pelo mesmo anúncio. O aviso do dono continua igual (40%+ te marca; 50%+ marca @everyone e você). Perfume fora do catálogo ganha o estilo pela marca.
 - **🛍️ Vitrine:** a cada 15 min, em horário redondo (10:00, 10:15, 10:30...), posta a melhor oferta que o bot conhece (promo primeiro, depois maior desconto, depois perfume do catálogo), tentando não repetir o mesmo perfume por 3 dias. Se acabar o que mostrar, repete o que saiu há mais tempo. Pula a vez se acabou de sair promo. `vitrine_minutos = 0` desliga.
 - Loja que bloquear é pausada (6 h, 12 h, 24 h...) e avisada uma vez no canal. Loja que só dá erro (provavelmente não tem essa busca) é pausada por 24 h, sem avisar.
 

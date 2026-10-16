@@ -81,6 +81,14 @@ CREATE TABLE IF NOT EXISTS alertas_usuario (
     acima_seguidas INTEGER NOT NULL DEFAULT 0  -- pesquisas seguidas com o preço acima do pedido
 );
 CREATE INDEX IF NOT EXISTS idx_alertas_usuario ON alertas_usuario(usuario_id);
+
+-- botões do /cargos: quem quer ser marcado em quê
+CREATE TABLE IF NOT EXISTS preferencias (
+    usuario_id     INTEGER PRIMARY KEY,
+    estilos        TEXT NOT NULL DEFAULT '',   -- 'arabe,nicho' ('todas' = qualquer estilo)
+    pct_min        INTEGER NOT NULL DEFAULT 20, -- marca a partir desse % OFF
+    atualizado_em  TEXT NOT NULL
+);
 """
 
 
@@ -522,3 +530,31 @@ def marcar_alerta_usuario(con, alerta_id, quando, avisado_preco, acima_seguidas=
     con.execute("UPDATE alertas_usuario SET ultima_busca = ?, avisado_preco = ?, acima_seguidas = ? WHERE id = ?",
                 (para_texto(quando), avisado_preco, acima_seguidas, alerta_id))
     con.commit()
+
+
+# ============================================================
+# /cargos: em que cada pessoa quer ser marcada
+# ============================================================
+
+def preferencia(con, usuario_id):
+    return _dict(con.execute("SELECT * FROM preferencias WHERE usuario_id = ?", (usuario_id,)).fetchone())
+
+
+def salvar_preferencia(con, usuario_id, estilos=None, pct_min=None, quando=None):
+    """Grava o que mudou (estilos: lista de chaves; pct_min: int). O que não veio fica como estava."""
+    atual = preferencia(con, usuario_id) or {"estilos": "", "pct_min": 20}
+    texto = ",".join(sorted(set(estilos))) if estilos is not None else atual["estilos"]
+    pct = int(pct_min) if pct_min is not None else atual["pct_min"]
+    con.execute(
+        "INSERT INTO preferencias (usuario_id, estilos, pct_min, atualizado_em) VALUES (?, ?, ?, ?)"
+        " ON CONFLICT(usuario_id) DO UPDATE SET estilos = excluded.estilos, pct_min = excluded.pct_min,"
+        " atualizado_em = excluded.atualizado_em",
+        (usuario_id, texto, pct, para_texto(quando or agora_utc())),
+    )
+    con.commit()
+    return preferencia(con, usuario_id)
+
+
+def preferencias_ativas(con):
+    """Quem escolheu pelo menos um estilo."""
+    return [_dict(l) for l in con.execute("SELECT * FROM preferencias WHERE estilos != ''")]
