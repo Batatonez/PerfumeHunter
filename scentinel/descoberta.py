@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 
 from scentinel import busca, catalogo, db, promo
-from scentinel.caca import pct_do_post
+from scentinel.caca import pct_do_post, reais_cheios
 from scentinel.coleta import Leitura, Resultado
 from scentinel.fontes import ResultadoBusca, fonte_busca_item
 from scentinel.formato import formatar_reais
@@ -73,6 +73,7 @@ class ResultadoAoVivo:
     lojas_falha: list = field(default_factory=list)
     detalhes: list = field(default_factory=list)  # [(loja, o que ela respondeu)] pra explicar quando não acha
     links: list = field(default_factory=list)  # [(loja, link da busca no site)]: um toque abre tudo, até o que o bot não vê
+    preco_bom: float | None = None  # do mais barato: abaixo disso é preço bom (None = o bot ainda não sabe)
 
 
 class Descoberta:
@@ -604,7 +605,22 @@ class Descoberta:
                 vistos.add(o[0].url)
                 unicas.append(o)
         resultado.ofertas = unicas  # o /locate só mostra: não grava nada (pesquisa sempre do zero)
+        if unicas:
+            resultado.preco_bom = self.preco_bom_do_achado(unicas[0][0], unicas[0][1])
         return resultado
+
+    def preco_bom_do_achado(self, achado, ml):
+        """Preço bom de algo achado ao vivo (/locate, /alerta), com o que o bot já sabe, sem pesquisar:
+        o histórico desse anúncio (se a varredura já viu ele) ou o "preço bom" do catálogo."""
+        anuncio = db.anuncio_por_url(self.con, achado.url)
+        if anuncio and (anuncio.get("origem") or "manual") == "descoberta" and (not ml or anuncio["ml"] == ml):
+            oferta = self.cacador.oferta_atual(anuncio)
+            if oferta and oferta.preco_bom:
+                return oferta.preco_bom
+        item = catalogo.identificar(achado.titulo, self.itens, achado.marca) if ml else None
+        if item and (not item.ml or ml in item.ml):
+            return reais_cheios(item.preco_bom_para(ml))
+        return None
 
     # ------------------------------------------------------------
     # 🔔 ALERTA PESSOAL (/alerta): "me marca quando o Sauvage ficar abaixo de R$ 500"

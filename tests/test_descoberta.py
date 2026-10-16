@@ -1027,3 +1027,36 @@ def test_catalogo_automatico_tem_teto_e_expira(amb, tmp_path):
     autocatalogo.gravar([(item, 2)], arq, amb.relogio.agora - timedelta(days=31))
     assert autocatalogo.expirar(amb.con, amb.relogio.agora, arq) == ["auto-x"]
     assert autocatalogo.carregar(arq) == {"itens": [], "removidos": []}
+
+
+def test_preco_bom_do_catalogo_ou_da_referencia(amb):
+    amb.cfg.descoberta.max_alertas_por_hora = 0
+    sauvage = achado("Sauvage Dior Eau de Parfum 100ml", 840, "Loja A", "https://a/sauvage")
+    bravo = achado("Perfume Lumina Bravo Masculino EDP 100ml", 300, "Loja A", "https://a/bravo")
+    forte = achado("Perfume Lumina Forte Masculino EDP 100ml", 250, "Loja A", "https://a/forte", preco_de=400)
+    for _ in range(6):  # 6 leituras: a 6ª já tem 5 de histórico (referência própria)
+        amb.a.varredura = [pagina(sauvage, bravo, forte)]
+        rodar(amb.desc.varredura(forcar=True))
+        amb.relogio.agora += timedelta(hours=7)
+
+    def oferta(url):
+        return amb.cac.oferta_atual(db.anuncio_por_url(amb.con, url))
+
+    assert oferta("https://a/sauvage").preco_bom == 660  # o "preço bom" do catálogo
+    assert oferta("https://a/bravo").preco_bom == 240  # fora do catálogo: 20% abaixo do histórico (300)
+    # o histórico do Forte (250) é menor que o "de R$ 400" da loja: vale o histórico
+    assert oferta("https://a/forte").preco_bom == 200
+    # só o "de R$" da loja (sem histórico ainda): não inventa preço bom
+    amb.a.varredura = [pagina(achado("Perfume Lumina Vento Masculino EDP 100ml", 250, "Loja A", "https://a/vento",
+                                     preco_de=400))]
+    rodar(amb.desc.varredura(forcar=True))
+    assert oferta("https://a/vento").preco_bom is None
+
+
+def test_locate_mostra_o_preco_bom(amb):
+    amb.a.programar("sauvage", achado("Sauvage Dior Eau de Parfum 100ml", 700, "Loja A", "https://a/s"))
+    res = rodar(amb.desc.buscar_ao_vivo("sauvage"))
+    assert res.ofertas and res.preco_bom == 660  # do catálogo (preço bom do Sauvage EDP 100ml)
+    amb.a.programar("xablau", achado("Perfume Xablau Bravo Masculino EDP 100ml", 150, "Loja A", "https://a/x"))
+    res = rodar(amb.desc.buscar_ao_vivo("xablau"))
+    assert res.ofertas and res.preco_bom is None  # nunca visto e fora do catálogo: o embed diz "ainda não sei"

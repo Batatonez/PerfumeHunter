@@ -39,6 +39,11 @@ class RespostaLocate:
     texto: str | None = None  # quando não tem embed pra mostrar
 
 
+def reais_cheios(valor):
+    """559,92 -> 559: o preço bom aparece e é comparado sem centavos (o que o post mostra é o que vale)."""
+    return float(int(valor)) if valor else None
+
+
 def pct_do_post(oferta):
     """% OFF que vai pro registro do post (None sem referência)."""
     av = oferta.avaliacao
@@ -150,6 +155,19 @@ class Cacador:
             return item.categoria
         return catalogo.estilo_da_marca(anuncio.get("perfume_marca"), anuncio.get("titulo") or anuncio.get("perfume_nome"))
 
+    def preco_bom(self, anuncio, avaliacao):
+        """Busca automática: abaixo de quanto é preço bom pra esse perfume. O do catálogo (alvo do anúncio);
+        fora dele, o ponto em que o bot já chama de promo (nível mínimo do canal, 20% abaixo da referência).
+        Só com o "de R$" da própria loja não diz nada: esse preço riscado pode ser inflado."""
+        if (anuncio.get("origem") or "manual") != "descoberta":
+            return None
+        if anuncio.get("alvo"):
+            return reais_cheios(anuncio["alvo"])
+        if not avaliacao.referencia or avaliacao.fonte in (None, promo.FONTE_LOJA):
+            return None
+        nivel = next((n for n in self.cfg.niveis if n.nivel == self.cfg.descoberta.nivel_minimo), None)
+        return reais_cheios(avaliacao.referencia * (1 - nivel.min_pct / 100)) if nivel else None
+
     def _oferta(self, anuncio, leitura, quando, avaliacao, bateu_alvo=False):
         estilo = self.estilo(anuncio)
         return promo.Oferta(
@@ -172,6 +190,7 @@ class Cacador:
             oficial=bool(anuncio.get("oficial")),
             preco_de=leitura.preco_de if leitura.preco_de and leitura.preco_de > leitura.preco else None,
             imagem=anuncio.get("imagem"),
+            preco_bom=self.preco_bom(anuncio, avaliacao),
         )
 
     def _avaliar(self, anuncio, leitura, quando):

@@ -202,6 +202,7 @@ class Oferta:
     estilo: str | None = None  # 'designer' | 'nicho' | 'arabe' | 'nacional' | None (marca desconhecida)
     oficial: bool = False  # loja oficial / vendido pela própria loja
     preco_de: float | None = None  # o riscado da loja
+    preco_bom: float | None = None  # busca automática: abaixo disso é preço bom pra esse perfume (None = não sei)
     imagem: str | None = None
 
     @property

@@ -649,7 +649,8 @@ def test_catalogo_automatico_pelo_bot():
         autocatalogo.escolher = original
     assert novo in bot.descoberta.itens and bot.cacador.catalogo[novo.id] is novo
     assert enviados[0].title == "📚 1 perfume(s) novo(s) no catálogo"
-    assert "**Hayaati EDP** (Lattafa) · 🕌 Árabe · normal ~R$ 180,00 (100ml)" in enviados[0].description
+    assert ("**Hayaati EDP** (Lattafa) · 🕌 Árabe · normal ~R$ 180,00 (100ml) · 💸 bom abaixo de R$ 140"
+            in enviados[0].description)
 
     respostas = []
 
@@ -675,3 +676,41 @@ def test_catalogo_automatico_pelo_bot():
                                        156), 2)])
     bot2 = BotScentinel(config.carregar_config(), config.Segredos("x", 1, 2, 42), db.conectar(":memory:"))
     assert any(i.id == "auto-x" for i in bot2.descoberta.itens)
+
+
+def test_linha_de_preco_bom_em_todo_post_da_busca_automatica():
+    from scentinel.formato import embed_vitrine
+
+    # preço ainda acima do bom: a linha aparece mesmo assim (diz a partir de quanto vale a pena)
+    acima = oferta_exemplo(origem="descoberta", preco=659.90, preco_bom=559, alvo=559.92, bateu_alvo=False)
+    for e in (embed_alerta(acima), embed_vitrine(acima)):
+        assert "💸 Abaixo de R$ 559, preço bom pra esse perfume · ⚠️ esse ainda tá acima" in e["description"]
+    abaixo = oferta_exemplo(origem="descoberta", preco=499.90, preco_bom=559)
+    assert "💸 Abaixo de R$ 559, preço bom pra esse perfume · ✅ esse tá bom" in embed_alerta(abaixo)["description"]
+    # não sabe ainda: diz que não sabe (não fica calado)
+    sem = oferta_exemplo(origem="descoberta", preco_bom=None)
+    assert "💸 Ainda não sei o preço bom desse perfume" in embed_alerta(sem)["description"]
+    # anúncio do /add continua com o alvo do dono
+    manual = oferta_exemplo(alvo=700, bateu_alvo=True, preco_bom=None)
+    d = embed_alerta(manual)["description"]
+    assert "🎯 Bateu seu alvo de R$ 700,00" in d and "preço bom pra esse perfume" not in d
+
+
+
+def test_preco_bom_no_locate_no_top_e_no_alerta_pessoal():
+    from scentinel.descoberta import ResultadoAoVivo
+    from scentinel.fontes import Achado
+    from scentinel.formato import embed_alerta_usuario, embed_ao_vivo, embed_top, embed_top_semana
+
+    k = Achado(titulo="Perfume Lattafa Khamrah EDP 100ml", url="https://ml/k", preco=239.9, loja="Mercado Livre")
+    res = ResultadoAoVivo("khamrah", ofertas=[(k, 100, 0)], lojas_ok=["Mercado Livre"], preco_bom=200)
+    assert "💸 Abaixo de R$ 200, preço bom pra esse perfume · ⚠️ esse ainda tá acima" in embed_ao_vivo(res)["description"]
+    res.preco_bom = None
+    assert "Ainda não sei o preço bom" in embed_ao_vivo(res)["description"]
+    al = embed_alerta_usuario({"id": 1, "consulta": "khamrah", "preco_max": 250, "ml": None}, k, 100, 0, 260)
+    assert "✅ esse tá bom" in al["description"]
+    o = oferta_exemplo(origem="descoberta", preco=659.90, preco_bom=700)
+    assert "✅ bom abaixo de R$ 700" in embed_top([o])["description"]
+    sem = {"anuncio": {"perfume_nome": "X", "ml": 100, "url": "https://x"}, "pct": 30, "preco": 199,
+           "quando": db.agora_utc(), "agora": oferta_exemplo(origem="descoberta", preco=199, preco_bom=None)}
+    assert "preço bom: ainda não sei" in embed_top_semana([sem])["description"]

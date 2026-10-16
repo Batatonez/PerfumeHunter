@@ -271,7 +271,8 @@ class BotScentinel(discord.Client):
         try:
             canal = await self.canal()
             uid = alerta["usuario_id"]
-            embed = discord.Embed.from_dict(formato.embed_alerta_usuario(alerta, achado, ml, pct))
+            bom = self.descoberta.preco_bom_do_achado(achado, ml) if self.descoberta else None
+            embed = discord.Embed.from_dict(formato.embed_alerta_usuario(alerta, achado, ml, pct, bom))
             await canal.send(content=f"<@{uid}> 🔔 chegou em **{formato.formatar_reais(achado.preco)}**",
                              embed=embed, allowed_mentions=discord.AllowedMentions(users=[discord.Object(id=uid)]))
             return True
@@ -795,12 +796,17 @@ def registrar_comandos(tree):
             ultima = h["ultima"]
             quando = formato.formatar_data(db.de_texto(ultima["quando"]), bot.cfg.fuso)
             mediana = fr(h["mediana"]) if h["mediana"] else "—"
-            linhas.append(
+            linha = (
                 f"{titulo} ({h['leituras']} leituras)\n"
                 f"  mín. {fr(h['min'])} · máx. {fr(h['max'])} · mediana {bot.cfg.ref_dias}d {mediana}\n"
                 f"  último: {fr(ultima['preco'])} em {quando}"
                 + (" ⚪ esgotado" if ultima["esgotado"] else "")
             )
+            if (a.get("origem") or "manual") == "descoberta":
+                atual = bot.cacador.oferta_atual(a)
+                if atual:
+                    linha += "\n  " + formato.curto_preco_bom(atual.preco, atual.preco_bom)
+            linhas.append(linha)
         embed = {
             "title": f"📈 Histórico: {perfume['nome']}",
             "color": formato.COR_NEUTRA,

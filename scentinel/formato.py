@@ -30,6 +30,26 @@ def formatar_reais(valor):
     return "R$ " + texto.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
+def reais_inteiros(valor):
+    """R$ sem centavos, pra baixo (559,92 -> 'R$ 559'): "abaixo de R$ 559" continua verdade."""
+    return formatar_reais(int(valor)).removesuffix(",00")
+
+
+def linha_preco_bom(preco, preco_bom):
+    """Vai em tudo que o bot manda: a partir de quanto vale a pena e se esse preço já chegou lá."""
+    if not preco_bom:
+        return "💸 Ainda não sei o preço bom desse perfume (pouco histórico): compara antes de comprar"
+    status = "✅ esse tá bom" if preco <= preco_bom else "⚠️ esse ainda tá acima"
+    return f"💸 Abaixo de {reais_inteiros(preco_bom)}, preço bom pra esse perfume · {status}"
+
+
+def curto_preco_bom(preco, preco_bom):
+    """Versão curta pras listas (top): '✅ bom abaixo de R$ 559' / '⚠️ bom abaixo de R$ 559'."""
+    if not preco_bom:
+        return "💸 preço bom: ainda não sei"
+    return f"{'✅' if preco <= preco_bom else '⚠️'} bom abaixo de {reais_inteiros(preco_bom)}"
+
+
 def formatar_pct(pct):
     return f"{pct:.0f}%"
 
@@ -86,11 +106,10 @@ def linhas_detalhe(oferta):
         linhas.append("📊 comparado com o preço normal de mercado")
     elif oferta.avaliacao.fonte == FONTE_MERCADO:
         linhas.append("📊 comparado com a 2ª loja mais barata")
-    if oferta.bateu_alvo and oferta.alvo:
-        if oferta.origem == "descoberta":
-            linhas.append(f"💸 Abaixo de {formatar_reais(oferta.alvo)}, preço bom pra esse perfume")
-        else:
-            linhas.append(f"🎯 Bateu seu alvo de {formatar_reais(oferta.alvo)}")
+    if oferta.origem == "descoberta":
+        linhas.append(linha_preco_bom(oferta.preco, oferta.preco_bom))  # sempre: pra não cair em promo ruim
+    elif oferta.bateu_alvo and oferta.alvo:
+        linhas.append(f"🎯 Bateu seu alvo de {formatar_reais(oferta.alvo)}")
     selos = [s for s in (oferta.categoria, "🛡️ Loja oficial" if oferta.oficial else None) if s]
     if selos:
         linhas.append(" · ".join(selos))
@@ -218,9 +237,10 @@ def embed_top(ofertas, titulo="🏆 Top do dia", nome_fuso="America/Sao_Paulo"):
         selo = f"{n.emoji} **{formatar_pct(o.avaliacao.pct)} OFF**" if n else ""
         extra = f" · {o.categoria}" if o.categoria else ""
         pix = f" · ⚡ Pix {formatar_reais(o.preco_pix)}" if o.preco_pix else ""
+        bom = f"\n{curto_preco_bom(o.preco, o.preco_bom)}" if o.origem == "descoberta" else ""
         linhas.append(
             f"**{i}. [{o.titulo}]({o.url})**\n"
-            f"{selo} · **{formatar_reais(o.preco)}** em {o.loja}{pix}{extra}"
+            f"{selo} · **{formatar_reais(o.preco)}** em {o.loja}{pix}{extra}{bom}"
         )
     return {
         "title": titulo,
@@ -241,9 +261,10 @@ def embed_top_semana(itens, nome_fuso="America/Sao_Paulo"):
                  f"{formatar_data(it['quando'], nome_fuso)[:5]}")
         if atual and not atual.esgotado:
             if atual.preco <= it["preco"] * 1.02:
-                linha += " · ✅ ainda nesse preço"
+                linha += " · ainda nesse preço"
             else:
                 linha += f" · agora {formatar_reais(atual.preco)}"
+            linha += "\n" + curto_preco_bom(atual.preco, atual.preco_bom)
         elif atual:
             linha += " · ⚪ esgotou"
         linhas.append(linha)
@@ -328,6 +349,7 @@ def embed_ao_vivo(res, max_linhas=8):
     ]
     if primeiro.preco_pix:
         linhas.append(f"⚡ Pix: {formatar_reais(primeiro.preco_pix)}")
+    linhas.append(linha_preco_bom(primeiro.preco, getattr(res, "preco_bom", None)))
     if len(res.ofertas) > 1:
         linhas += ["", "**Outras ofertas:**"]
         for achado, ml2, pct2 in res.ofertas[1:max_linhas]:
@@ -353,11 +375,12 @@ def embed_ao_vivo(res, max_linhas=8):
 # 🔔 /alerta (alerta pessoal)
 # ============================================================
 
-def embed_alerta_usuario(alerta, achado, ml, pct):
+def embed_alerta_usuario(alerta, achado, ml, pct, preco_bom=None):
     linhas = [
         f"**{achado.titulo[:150]}**",
         "💰 " + _linha_oferta_viva(achado, ml, pct),
         f"🎯 Você pediu até {formatar_reais(alerta['preco_max'])}",
+        linha_preco_bom(achado.preco, preco_bom),
         f"🔗 [abrir o anúncio]({achado.url})",
     ]
     tamanho = f" {alerta['ml']:g}ml" if alerta.get("ml") else ""
@@ -381,7 +404,8 @@ def embed_catalogo_novo(itens):
     linhas = []
     for i in itens:
         linhas.append(f"• **{i.nome_exibicao}** ({i.marca}) · {i.rotulo_categoria} · normal ~"
-                      f"{formatar_reais(i.preco_normal)} ({i.ml_ref:g}ml)")
+                      f"{formatar_reais(i.preco_normal)} ({i.ml_ref:g}ml) · 💸 bom abaixo de "
+                      f"{reais_inteiros(i.preco_bom)}")
     return {
         "title": f"📚 {len(itens)} perfume(s) novo(s) no catálogo",
         "color": COR_NEUTRA,
