@@ -67,3 +67,13 @@ def test_historico_manda_o_grafico():
         db.agora_utc = original
     kw = edicoes[-1]
     assert kw["embed"].image.url == "attachment://historico.png" and kw["attachments"][0].filename == "historico.png"
+
+
+def test_titulo_comprido_cabe_no_grafico():
+    pontos = [(date(2026, 10, d), p) for d, p in ((1, 300), (2, 290), (3, 200), (4, 300))]
+    titulo = "Supremacy Not Only Intense Extrait de Parfum Edição Especial Colecionador " * 3
+    assert grafico.desenhar(titulo, pontos)[:4] == b"\x89PNG"
+    fonte, _ = grafico._fonte(18)
+    cortado = grafico._caber(titulo, fonte, 800)
+    assert cortado.endswith("…") and fonte.getlength(cortado) <= 800
+    assert grafico._caber("Sauvage", fonte, 800) == "Sauvage"

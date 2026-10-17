@@ -72,6 +72,18 @@ def _fonte(tamanho, fontes=_FONTES):
         return ImageFont.load_default(), False
 
 
+def _caber(texto, fonte, largura):
+    """Corta com "…" o que não cabe na largura (nome de perfume muito comprido)."""
+    try:
+        if fonte.getlength(texto) <= largura:
+            return texto
+        while texto and fonte.getlength(texto + "…") > largura:
+            texto = texto[:-1]
+        return texto.rstrip() + "…"
+    except AttributeError:  # fonte de bitmap antiga: corta pelo número de letras
+        return texto if len(texto) <= 90 else texto[:89] + "…"
+
+
 def _passo_bonito(intervalo, divisoes=4):
     bruto = intervalo / divisoes
     potencia = 10 ** len(str(int(bruto))) / 10 if bruto >= 1 else 1
@@ -117,7 +129,7 @@ def desenhar(titulo, pontos, fontes=_FONTES):
     def py(preco):
         return y1 - (y1 - y0) * (preco - ymin) / (ymax - ymin)
 
-    d.text((x0, 16 * s), txt(titulo), font=f_titulo, fill=TEXTO)
+    d.text((x0, 16 * s), _caber(txt(titulo), f_titulo, x1 - x0), font=f_titulo, fill=TEXTO)
     valor = ymin
     while valor <= ymax + 0.01:
         y = py(valor)
@@ -139,10 +151,12 @@ def desenhar(titulo, pontos, fontes=_FONTES):
     x, y = xy[i_menor]
     r2 = 7 * s
     d.ellipse([x - r2, y - r2, x + r2, y + r2], outline=MENOR, width=2 * s)
-    # o menor fica embaixo da linha (ali não tem nada), do lado que cabe
-    ancora = "lt" if x < (x0 + x1) / 2 else "rt"
-    d.text((x + (8 if ancora == "lt" else -8) * s, y + 10 * s), f"menor: {_reais_curto(pontos[i_menor][1])}",
-           font=f_rotulo, fill=MENOR, anchor=ancora)
+    # o menor fica embaixo da linha (ali não tem nada), do lado que cabe; colado no eixo, vai pra cima
+    lado = "l" if x < (x0 + x1) / 2 else "r"
+    embaixo = y + 30 * s < y1
+    ancora = lado + ("t" if embaixo else "b")
+    d.text((x + (8 if lado == "l" else -8) * s, y + (10 if embaixo else -10) * s),
+           f"menor: {_reais_curto(pontos[i_menor][1])}", font=f_rotulo, fill=MENOR, anchor=ancora)
     if i_menor != len(pontos) - 1:
         x, y = xy[-1]
         d.text((x - 8 * s, y - 12 * s), txt(f"último: {_reais_curto(pontos[-1][1])}"), font=f_rotulo, fill=TEXTO,
