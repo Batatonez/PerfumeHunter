@@ -12,6 +12,8 @@ from scentinel.promo import Nivel
 
 PASTA_PROJETO = Path(__file__).resolve().parent.parent
 ARQ_CONFIG = PASTA_PROJETO / "config.toml"
+# o que o dono muda fica aqui (fora do git): o config.toml é do bot e chega nas atualizações sem conflito
+ARQ_CONFIG_LOCAL = PASTA_PROJETO / "config.local.toml"
 ARQ_ENV = PASTA_PROJETO / ".env"
 ARQ_DB = PASTA_PROJETO / "dados" / "scentinel.db"
 
@@ -94,9 +96,26 @@ def _cor(valor):
     return int(str(valor).lstrip("#"), 16)
 
 
-def carregar_config(caminho=ARQ_CONFIG):
-    with open(caminho, "rb") as f:
+def _juntar(base, local):
+    """config.local.toml por cima do config.toml: seção com seção (só as chaves que ele tem), o resto troca."""
+    for chave, valor in local.items():
+        if isinstance(valor, dict) and isinstance(base.get(chave), dict):
+            base[chave] = {**base[chave], **valor}
+        else:
+            base[chave] = valor
+    return base
+
+
+def carregar_config(caminho=None, local=None):
+    with open(caminho or ARQ_CONFIG, "rb") as f:
         bruto = tomllib.load(f)
+    local = local or ARQ_CONFIG_LOCAL
+    if Path(local).exists():
+        try:
+            with open(local, "rb") as f:
+                bruto = _juntar(bruto, tomllib.load(f))
+        except tomllib.TOMLDecodeError as e:
+            raise SystemExit(f"❌ O config.local.toml tem um erro de escrita: {e}")
 
     geral = bruto.get("geral", {})
     ref = bruto.get("referencia", {})

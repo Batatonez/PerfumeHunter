@@ -29,11 +29,11 @@ def test_formatar_data_em_sao_paulo():
 
 def test_embed_alerta_igual_ao_mock():
     e = embed_alerta(oferta_exemplo())
-    assert e["title"] == "🟠 NÍVEL 3 · RASTRO — 34% OFF"
+    assert e["title"] == "🟠 NÍVEL 3 · RASTRO — 33% OFF"  # 33,94%: pra baixo, nunca promete mais
     assert e["color"] == 0xE67E22
     d = e["description"]
     assert "**Sauvage EDP 100ml** · Loja X" in d
-    assert "R$ 659,90" in d and "**34% OFF** (ref. R$ 999,00)" in d and "R$ 6,60/ml" in d
+    assert "R$ 659,90" in d and "**33% OFF** (ref. R$ 999,00)" in d and "R$ 6,60/ml" in d
     assert "⚡ Pix: R$ 626,90" in d
     assert "🏆 RECORDE" in d
     assert e["footer"]["text"] == "Checado em 11/10 15:30"
@@ -53,8 +53,8 @@ def test_porcentagem_off_em_todo_post():
     alvo = oferta_exemplo(avaliacao=Avaliacao(700, 760, "catalogo", 7.9, None), bateu_alvo=True, alvo=750,
                           origem="descoberta")
     e = embed_alerta(alvo)
-    assert e["title"] == "💸 PREÇO BOM — 8% OFF" and "**8% OFF**" in e["description"]
-    assert embed_alerta(oferta_exemplo(avaliacao=Avaliacao(700, 720, "historico", 2.8, None)))["title"] == "🏷️ 3% OFF"
+    assert e["title"] == "💸 PREÇO BOM — 7% OFF" and "**7% OFF**" in e["description"]
+    assert embed_alerta(oferta_exemplo(avaliacao=Avaliacao(700, 720, "historico", 2.8, None)))["title"] == "🏷️ 2% OFF"
     pouco = oferta_exemplo(avaliacao=Avaliacao(700, 703, "loja", 0.4, None))
     assert embed_vitrine(pouco)["title"] == "🛍️ VITRINE — achado do Scentinel"
     assert "OFF" not in embed_vitrine(pouco)["description"]
@@ -298,7 +298,7 @@ def test_embed_vitrine():
     assert e["title"] == "🛍️ VITRINE — achado do Scentinel" and e["footer"]["text"].startswith("🛍️ Vitrine")
     com_desconto = oferta_exemplo(avaliacao=Avaliacao(659.90, 750, "loja", 12, None))
     assert embed_vitrine(com_desconto)["title"] == "🛍️ VITRINE — 12% OFF"
-    assert embed_vitrine(oferta_exemplo())["title"] == "🟠 NÍVEL 3 · RASTRO — 34% OFF"  # promo: título normal
+    assert embed_vitrine(oferta_exemplo())["title"] == "🟠 NÍVEL 3 · RASTRO — 33% OFF"  # promo: título normal
 
 
 def test_vitrine_liga_com_o_bot():
@@ -575,8 +575,12 @@ def test_botoes_de_estilo_e_porcentagem_guardam_a_escolha():
     async def responder(texto, **kw):
         respostas.append((texto, kw))
 
+    async def defer(**kw):
+        pass
+
     interacao = SimpleNamespace(guild=guild, user=membro, client=SimpleNamespace(con=con),
-                                response=SimpleNamespace(send_message=responder))
+                                response=SimpleNamespace(send_message=responder, defer=defer),
+                                followup=SimpleNamespace(send=responder))
     asyncio.run(alternar_cargo_(interacao, "nicho"))
     assert membro.roles and respostas[-1][1]["ephemeral"]
     assert "**20% OFF ou mais** de: 💎 Nicho" in respostas[-1][0]  # sem escolher %: 20%
@@ -773,3 +777,118 @@ def test_preco_bom_no_locate_no_top_e_no_alerta_pessoal():
     sem = {"anuncio": {"perfume_nome": "X", "ml": 100, "url": "https://x"}, "pct": 30, "preco": 199,
            "quando": db.agora_utc(), "agora": oferta_exemplo(origem="descoberta", preco=199, preco_bom=None)}
     assert "preço bom: ainda não sei" in embed_top_semana([sem])["description"]
+
+
+def test_porcentagem_do_post_e_a_mesma_da_marcacao_e_do_send():
+    """29,6% aparece como 29% (não promete 30) e não marca quem pediu 30%+; 30,2% aparece 30% e marca."""
+    from scentinel.bot import quem_marcar
+    from scentinel.descoberta import Descoberta
+
+    prefs = [{"usuario_id": 1, "estilos": "arabe", "pct_min": 30}]
+
+    def promo(pct, anuncio_id):
+        return oferta_exemplo(anuncio_id=anuncio_id, origem="descoberta", estilo="arabe",
+                              avaliacao=Avaliacao(100, 200, "historico", pct, None))
+
+    quase = promo(29.6, 1)
+    assert "29% OFF" in embed_alerta(quase)["title"]
+    assert quem_marcar(prefs, quase, {}, db.agora_utc()) == []
+    assert not Descoberta.filtro_oferta(desconto_min=30)(quase)
+    trinta = promo(30.2, 2)
+    assert "30% OFF" in embed_alerta(trinta)["title"]
+    assert quem_marcar(prefs, trinta, {}, db.agora_utc()) == [1]
+    assert Descoberta.filtro_oferta(desconto_min=30)(trinta)
+
+
+def test_preco_bom_exato_bate_com_o_titulo():
+    """Preço R$ 438,50 com preço bom R$ 438,60: o título diz PREÇO BOM e a linha diz ✅ (antes dizia ⚠️)."""
+    o = oferta_exemplo(origem="descoberta", preco=438.50, preco_bom=438.60, alvo=438.60, bateu_alvo=True,
+                       avaliacao=Avaliacao(438.50, 550, "catalogo", 20.3, None))
+    d = embed_alerta(o)["description"]
+    assert "💸 Abaixo de R$ 438,60, preço bom pra esse perfume · ✅ esse tá bom" in d
+    redondo = oferta_exemplo(origem="descoberta", preco=700, preco_bom=660)
+    assert "Abaixo de R$ 660, preço bom" in embed_alerta(redondo)["description"]
+
+
+def test_alerta_criado_avisa_tamanho_e_preco_bom():
+    from scentinel.bot import texto_alerta_criado
+    from scentinel.descoberta import ResultadoAoVivo
+    from scentinel.fontes import Achado
+
+    k30 = Achado(titulo="Perfume Lattafa Khamrah EDP 30ml", url="https://ml/k30", preco=99, loja="Mercado Livre")
+    res = ResultadoAoVivo("khamrah", ofertas=[(k30, 30, 0)], lojas_ok=["Mercado Livre"])
+    alerta = {"id": 1, "consulta": "khamrah", "preco_max": 250, "ml": 100}
+    assert "não no tamanho 100ml (só 30ml)" in texto_alerta_criado(alerta, res, None)
+    k100 = Achado(titulo="Perfume Lattafa Khamrah EDP 100ml", url="https://ml/k", preco=239.9, loja="Mercado Livre")
+    texto = texto_alerta_criado(alerta, res, (k100, 100, 0), 210)
+    assert "🎉 Já tá nesse preço agora" in texto and "⚠️ esse ainda tá acima" in texto  # bateu o seu, não o bom
+
+
+def test_alerta_criado_duas_vezes_rapido_nao_duplica():
+    import asyncio
+    from types import SimpleNamespace
+
+    from scentinel.bot import BotScentinel, registrar_comandos
+    from scentinel.descoberta import ResultadoAoVivo
+
+    bot = BotScentinel(config.carregar_config(), config.Segredos("x", 1, 2, 42), db.conectar(":memory:"))
+    registrar_comandos(bot.tree)
+    criar = bot.tree.get_command("alerta").get_command("criar")
+    edicoes = []
+
+    async def ao_vivo(nome, marca=None):
+        db.criar_alerta_usuario(bot.con, 7, "sauvage", 500)  # o 2º clique terminou durante esta pesquisa
+        return ResultadoAoVivo(nome, lojas_ok=["Mercado Livre"])
+
+    bot.descoberta.buscar_ao_vivo = ao_vivo
+
+    async def nada(*a, **kw):
+        pass
+
+    async def editar(**kw):
+        edicoes.append(kw["content"])
+
+    interacao = SimpleNamespace(client=bot, user=SimpleNamespace(id=7), edit_original_response=editar,
+                                response=SimpleNamespace(send_message=nada, defer=nada))
+    asyncio.run(criar.callback(interacao, perfume="sauvage", preco=500.0))
+    assert len(db.alertas_do_usuario(bot.con, 7)) == 1 and "já tem esse alerta" in edicoes[-1]
+
+
+def test_catalogo_novos_mostra_os_mais_novos_e_cabe():
+    from scentinel.bot import texto_catalogo_auto
+    from scentinel.catalogo import ItemCatalogo
+
+    itens = [ItemCatalogo(f"i{n}", f"Perfume Numero {n}", "Lattafa", "EDP", [100.0], "masc", "arabe", 200, 100.0, 156)
+             for n in range(60)]
+    texto = texto_catalogo_auto(itens)
+    assert len(texto) <= 1900 and texto.index("Numero 59") < texto.index("Numero 58")
+    assert "mais antigos" in texto and texto.endswith("Pra tirar um: `/catalogo remover`")
+
+
+def test_cargos_sem_permissao_de_mandar_no_canal():
+    import asyncio
+    from types import SimpleNamespace
+
+    import discord
+
+    from scentinel.bot import BotScentinel, registrar_comandos
+
+    bot = BotScentinel(config.carregar_config(), config.Segredos("x", 1, 2, 3), db.conectar(":memory:"))
+    registrar_comandos(bot.tree)
+    guild = _guild_falsa(*__import__("scentinel.bot", fromlist=["CARGOS"]).CARGOS.values())
+    edicoes = []
+
+    async def nada(**kw):
+        pass
+
+    async def editar(**kw):
+        edicoes.append(kw["content"])
+
+    async def send_negado(**kw):
+        raise discord.Forbidden(SimpleNamespace(status=403, reason="Forbidden"), "Missing Permissions")
+
+    interacao = SimpleNamespace(client=bot, guild=guild, permissions=SimpleNamespace(administrator=True),
+                                channel=SimpleNamespace(send=send_negado), edit_original_response=editar,
+                                response=SimpleNamespace(defer=nada))
+    asyncio.run(bot.tree.get_command("cargos").callback(interacao))
+    assert "Não consigo mandar mensagem neste canal" in edicoes[-1] and "Gerenciar cargos" not in edicoes[-1]

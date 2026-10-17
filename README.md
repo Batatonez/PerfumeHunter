@@ -210,7 +210,18 @@ systemctl status scentinel        # tá rodando? (q pra sair)
 journalctl -u scentinel -f        # log ao vivo, uma linha por anúncio checado (Ctrl+C sai)
 ```
 
-Se você mexer no `config.toml` ou no `.env`, reinicie o bot:
+**Pra mudar uma configuração, não mexa no `config.toml`** (ele é do bot e muda nas atualizações; se você
+editar ele, o `scentinel-update` não consegue baixar a versão nova). Escreva só o que quer mudar no
+`config.local.toml` (fica fora do git, nunca dá conflito), com a mesma seção do `config.toml`. Exemplo:
+
+```toml
+# ~/scentinel/config.local.toml
+[descoberta]
+vitrine_minutos = 30
+top_n = 3
+```
+
+Depois de mexer no `config.local.toml` ou no `.env`, reinicie o bot:
 
 ```bash
 sudo systemctl restart scentinel
@@ -270,7 +281,7 @@ Reinicie com a tampa fechada (`sudo reboot`). Espere uns 2 minutos e veja se o b
 | `/status` | todos | mostra se cada loja está funcionando ou pausada (até quando e por quê) |
 | `/despausar` | dono | tira a pausa das lojas na hora |
 | `/send numero [estilo] [ate] [desconto]` | admin | manda agora até N ofertas no canal (até 20; novas primeiro, sem repetir perfume no lote). Filtros opcionais: estilo (✨ Designer, 💎 Nicho, 🕌 Árabe, 🇧🇷 Nacional, 🧴 Outras marcas), preço máximo e % OFF mínimo. Sem filtro, vai qualquer uma |
-| `/alerta criar perfume preco [ml]` | todo mundo | alerta de preço só seu: o bot pesquisa a cada ~3 h e te marca no canal quando chegar no preço (de novo só se baixar mais). Até 5 por pessoa |
+| `/alerta criar perfume preco [ml]` | todo mundo | alerta de preço só seu: o bot pesquisa a cada 3-4 h e te marca no canal quando chegar no preço (de novo só se baixar mais). Até 5 por pessoa |
 | `/alerta lista` · `/alerta remover` | todo mundo | ver e parar os seus alertas |
 | `/cargos` | admin | cria os cargos ✨ Designer, 💎 Nicho, 🕌 Árabe, 🇧🇷 Nacional e 🔥 Todas as promos e manda os botões (fixa a mensagem): em cima a pessoa escolhe os estilos, embaixo a partir de quantos % OFF quer ser marcada (10% a 50%), e tem 🔕 Tirar meus cargos pra sair de tudo |
 | `/catalogo novos` · `remover` · `rodar` | dono | o que o catálogo automático pôs, tirar um (não volta mais), rodar a análise agora |
@@ -314,7 +325,7 @@ Anti-spam:
 - **Sanidade:** se a queda passar de 60% (ou se for nível 5), ele baixa a página de novo 2 minutos depois e só avisa se o preço confirmar.
 - O preço Pix é guardado e mostrado, mas o nível usa o preço normal. Preço parcelado nunca vira preço.
 
-Tudo isso (faixas, nomes, cores, pings e nível mínimo, inclusive por perfume) fica no `config.toml`.
+Tudo isso (faixas, nomes, cores, pings e nível mínimo, inclusive por perfume) fica no `config.toml` (pra mudar, use o `config.local.toml`).
 
 Educação com as lojas (não negociável):
 - cada anúncio é checado no máximo a cada 3 h;
@@ -343,9 +354,10 @@ O que ele faz com o que acha:
 - **Confere se é o perfume certo:** marca, nome, concentração (Sauvage EDT ≠ EDP ≠ Elixir), público (212 VIP masculino ≠ feminino) e tamanho. Anúncio sem ml no título fica de fora (não dá pra comparar preço).
 - **Compara com o preço normal de mercado** do catálogo, com o histórico real de 30 dias e com o "de R$" da loja, e fica sempre com o **menor** dos três (assim promo falsa de "de R$ 999 por R$ 699" não passa).
 - **Posta só o que vale:** a partir do nível 2 (20% abaixo da referência), ou abaixo do "preço bom" do perfume. Se o mesmo perfume e tamanho estiver mais barato em outra loja, posta só o mais barato. No máximo 10 posts por hora.
-- **% OFF em todo post:** título e linha do preço mostram quantos % abaixo da referência está (quando tem referência).
+- **% OFF em todo post:** título e linha do preço mostram quantos % abaixo da referência está (quando tem referência), arredondado pra baixo (29,6% aparece 29%: nunca promete mais do que é, e bate com os botões de % e o filtro do `/send`).
+- **💸 Preço bom em tudo que o bot manda:** "Abaixo de R$ X, preço bom pra esse perfume", dizendo se aquele preço já está bom (✅) ou ainda acima (⚠️). É o "preço bom" do catálogo; fora dele, 20% abaixo da referência. Se o bot ainda não sabe (só tem o "de R$" da loja), ele diz.
 - **🏆 Top do dia** às 19h com os 5 melhores (um por perfume). `/top` mostra na hora. **Domingo** sai o **🏆 Top da semana** no lugar: os maiores % OFF que passaram no canal em 7 dias, dizendo se ainda está naquele preço.
-- **Marcação por estilo e %:** nos botões do `/cargos` cada pessoa escolhe os estilos (✨ Designer, 💎 Nicho, 🕌 Árabe, 🇧🇷 Nacional, 🔥 Todas) e a partir de quantos % OFF quer ser marcada (10%, 20%... 50%; sem escolher, 20%). Todo post (promo ou vitrine) com esse desconto num estilo dela marca a pessoa: no máximo 1 vez a cada 30 min (promo maior passa na frente) e nunca 2 vezes pelo mesmo anúncio. O aviso do dono continua igual (40%+ te marca; 50%+ marca @everyone e você). Perfume fora do catálogo ganha o estilo pela marca.
+- **Marcação por estilo e %:** nos botões do `/cargos` cada pessoa escolhe os estilos (✨ Designer, 💎 Nicho, 🕌 Árabe, 🇧🇷 Nacional, 🔥 Todas) e a partir de quantos % OFF quer ser marcada (10%, 20%... 50%; sem escolher, 20%). Todo post (promo ou vitrine) com esse desconto num estilo dela marca a pessoa: no máximo 1 vez a cada 30 min (promo maior passa na frente) e o mesmo anúncio não marca de novo no mesmo dia. O aviso do dono continua igual (40%+ te marca; 50%+ marca @everyone e você). Perfume fora do catálogo ganha o estilo pela marca.
 - **🛍️ Vitrine:** a cada 15 min, em horário redondo (10:00, 10:15, 10:30...), posta a melhor oferta que o bot conhece (promo primeiro, depois maior desconto, depois perfume do catálogo), tentando não repetir o mesmo perfume por 3 dias. Se acabar o que mostrar, repete o que saiu há mais tempo. Pula a vez se acabou de sair promo. `vitrine_minutos = 0` desliga.
 - Loja que bloquear é pausada (6 h, 12 h, 24 h...) e avisada uma vez no canal. Loja que só dá erro (provavelmente não tem essa busca) é pausada por 24 h, sem avisar.
 

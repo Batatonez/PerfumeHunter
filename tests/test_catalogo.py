@@ -119,3 +119,27 @@ def test_estilo_pela_marca():
     assert estilo_da_marca("My Perfumes") == "arabe" and estilo_da_marca("Le Labo") == "nicho"
     assert estilo_da_marca(None, "Perfume Labo Xyz 100ml") is None
     assert estilo_da_marca("Bond No. 9") == "nicho" and estilo_da_marca("Penhaligon's") == "nicho"
+
+
+def test_concentracao_que_faz_parte_do_nome():
+    """'Le Beau Le Parfum 125ml': o "Parfum" é do nome, não quer dizer que é a versão Parfum."""
+    from scentinel.catalogo import ItemCatalogo, casar, identificar
+
+    le_beau = ItemCatalogo("lb-edt", "Le Beau", "Jean Paul Gaultier", "EDT", [125], "masc")
+    le_parfum = ItemCatalogo("lb-lp", "Le Beau Le Parfum", "Jean Paul Gaultier", "EDP", [125], "masc",
+                             evitar=["eau de toilette", "edt"])
+    cat = [le_beau, le_parfum]
+    titulo = "Jean Paul Gaultier Le Beau Le Parfum 125ml Masculino"
+    assert casar(le_parfum, titulo, None, cat)[0] and not casar(le_beau, titulo, None, cat)[0]
+    assert identificar(titulo, cat).id == "lb-lp"
+    assert identificar("Jean Paul Gaultier Le Beau Le Parfum Eau de Parfum Intense 125ml", cat).id == "lb-lp"
+    assert identificar("Jean Paul Gaultier Le Beau Eau de Toilette 125ml", cat).id == "lb-edt"
+
+
+def test_frasco_grande_nao_fica_caro_demais():
+    from scentinel.catalogo import ItemCatalogo
+
+    item = ItemCatalogo("x", "X", "Y", "EDT", [50, 100, 200], "masc", "designer", 500, 100, 385)
+    assert item.referencia_para(100) == 500
+    assert 740 < item.referencia_para(200) < 770  # ~1,5x (com 0.8 dava 870, e 200ml normal virava "preço bom")
+    assert 280 < item.referencia_para(50) < 290  # frasco menor continua como antes

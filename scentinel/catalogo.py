@@ -177,10 +177,13 @@ class ItemCatalogo:
         return CATEGORIAS.get(self.categoria, self.categoria)
 
     def _escala(self, valor, ml):
-        """Preço de referência pra outro tamanho. Frasco maior sai mais barato por ml (expoente 0.8)."""
+        """Preço de referência pra outro tamanho. Frasco menor: expoente 0.8 (50 ml ~57% do de 100 ml).
+        Frasco maior: 0.6 (200 ml ~1,5x o de 100 ml, que é o que o mercado cobra; com 0.8 dava 1,74x e
+        um 200 ml a preço normal parecia "preço bom")."""
         if not valor or not self.ml_ref or not ml:
             return None
-        return round(valor * (ml / self.ml_ref) ** 0.8, 2)
+        expoente = 0.6 if ml > self.ml_ref else 0.8
+        return round(valor * (ml / self.ml_ref) ** expoente, 2)
 
     def referencia_para(self, ml):
         return self._escala(self.preco_normal, ml)
@@ -193,7 +196,8 @@ def _slug(texto):
     return re.sub(r"[^a-z0-9]+", "-", sem_acento(texto).lower()).strip("-")
 
 
-def carregar_catalogo(caminho=ARQ_CATALOGO):
+def carregar_catalogo(caminho=None):
+    caminho = caminho or ARQ_CATALOGO
     if not Path(caminho).exists():
         return []
     with open(caminho, "rb") as f:
@@ -302,8 +306,11 @@ def casar(item, titulo, marca_loja=None, catalogo=None):
     if not all(_tem_palavra(p, palavras) for p in nome_norm):
         return False, "nome não bate"
 
-    # concentração
+    # concentração ("Le Beau Le Parfum 125ml": o "Parfum" é do nome, não diz a concentração)
     conc_titulo = detectar_concentracao(titulo)
+    conc_do_nome = detectar_concentracao(item.nome)
+    if conc_do_nome and conc_titulo == conc_do_nome and conc_titulo != item.concentracao:
+        conc_titulo, catalogo = None, None  # o título só repetiu o nome: não dá pra dizer que é outra
     if item.concentracao:
         if conc_titulo and conc_titulo != item.concentracao:
             return False, f"concentração {conc_titulo}"

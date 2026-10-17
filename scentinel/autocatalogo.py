@@ -26,6 +26,9 @@ from datetime import timedelta
 
 from scentinel import busca, catalogo, db
 from scentinel.config import PASTA_PROJETO
+from scentinel.formato import fuso
+
+_FUSO = fuso()
 
 log = logging.getLogger("scentinel")
 
@@ -81,16 +84,20 @@ def item_de_dict(d):
     return catalogo.ItemCatalogo(**campos)
 
 
-def itens_salvos(ids_existentes=(), arq=None):
-    """Itens do catálogo automático (os que não batem com um id do catalogo.toml)."""
+def itens_salvos(ids_existentes=(), arq=None, manuais=()):
+    """Itens do catálogo automático. Fica de fora o que bate com um id do catalogo.toml, o que um item feito
+    à mão já cobre (ele entrou no catalogo.toml depois) e nome genérico demais (de versão antiga)."""
     saida = []
     for d in carregar(arq)["itens"]:
         try:
             item = item_de_dict(d)
         except TypeError:
             continue
-        if item.id not in ids_existentes:
-            saida.append(item)
+        if item.id in ids_existentes or not _palavras_que_diferenciam(item.nome):
+            continue
+        if manuais and _ja_coberto(item.marca, _palavras_do_nome(item.nome, item.marca), manuais):
+            continue
+        saida.append(item)
     return saida
 
 
@@ -102,11 +109,14 @@ def nome_do_titulo(titulo, marca):
     """'Perfume Lattafa Hayaati Eau de Parfum 100ml Masculino' + 'Lattafa' -> 'Hayaati'."""
     nome = _GENERO.sub(" ", _CONC.sub(" ", catalogo.nome_limpo(titulo, limite=120)))
     palavras_marca = set(busca.normalizar(marca).split())
+    marca_crua = set(catalogo._texto_marca(marca).split())  # com o "de"/"le" da marca ("Parfums de Marly")
     tokens = []
     for t in nome.split():
         norm = busca.normalizar(t)
         if norm in palavras_marca or norm in _DESCRITIVAS or (not norm and not t.isalpha()):
             continue  # palavra da marca, "Árabe", "Desodorante" ou pontuação solta ("&", "-")
+        if not norm and catalogo._texto_marca(t) in marca_crua:
+            continue  # o "de" de "Parfums de Marly", o "Le" de "Le Labo"
         tokens.append(t)
     while tokens and not busca.normalizar(tokens[-1]):
         tokens.pop()  # "de" sobrando no fim
@@ -181,7 +191,7 @@ def _grupos(con, agora, itens):
         g["titulos"][titulo] += 1
         g["precos"].setdefault(ml, []).append(preco)
         g["anuncios"].add(anuncio_id)
-        g["dias"].add(quando[:10])
+        g["dias"].add(db.de_texto(quando).astimezone(_FUSO).date())  # dia em São Paulo, não em UTC
         g["marca"] = g["marca"] or marca
     return grupos, por_marca
 
@@ -224,6 +234,8 @@ def escolher(preparado, itens, removidos=(), limite=MAX_POR_DIA):
             continue
         palavras = _palavras_do_nome(nome, marca)
         chave = (busca.normalizar(marca), palavras)
+        if not _palavras_que_diferenciam(nome):
+            continue  # "Pour Homme", "Man": genérico demais, engoliria o Eros, o Chrome, o Invictus...
         if not palavras or chave in escolhidos or _ja_coberto(marca, palavras, itens):
             continue
         conc = busca.detectar_concentracao(titulo)

@@ -180,6 +180,14 @@ def main(argv=None):
     if args.comando == "ml-teste":
         return ml_teste(args.termo)
 
+    # antes de carregar o resto do bot: se um /atualizar morreu no meio, volta pro código de antes e sai pro
+    # systemd ligar de novo já nele (código que ninguém testou não roda)
+    from scentinel import atualizar
+
+    if atualizar.retomar_atualizacao_interrompida():
+        print("🔄 Atualização interrompida: voltei pro código de antes. Reiniciando...", flush=True)
+        return atualizar.SAIDA_PRA_REINICIAR
+
     from scentinel.bot import rodar
 
     rodar()

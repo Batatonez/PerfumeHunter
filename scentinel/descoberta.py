@@ -18,10 +18,10 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 
 from scentinel import busca, catalogo, db, promo
-from scentinel.caca import pct_do_post, reais_cheios
+from scentinel.caca import pct_do_post
 from scentinel.coleta import Leitura, Resultado
 from scentinel.fontes import ResultadoBusca, fonte_busca_item
-from scentinel.formato import formatar_reais
+from scentinel.formato import formatar_reais, pct_inteiro
 
 log = logging.getLogger("scentinel")
 
@@ -111,6 +111,7 @@ class Descoberta:
     def remover_item(self, item_id):
         self.itens = [i for i in self.itens if i.id != item_id]
         self.cacador.catalogo.pop(item_id, None)
+        db.limpar_alvo_do_item(self.con, item_id)  # o "preço bom" dele não fica valendo nos anúncios
 
     # ------------------------------------------------------------
     # lojas pausadas, bloqueio e erro
@@ -210,6 +211,11 @@ class Descoberta:
         nome = item.nome_exibicao
         nome_norm = busca.normalizar(nome)
         perfume = db.perfume_por_nome_norm(self.con, nome_norm)
+        if perfume and perfume.get("marca") and not busca.marca_bate(item.marca, perfume["marca"]):
+            # mesmo nome, outra marca (L'Homme da YSL x da Prada): cada um na sua linha, com a marca no nome
+            nome = f"{item.marca} {nome}"
+            nome_norm = busca.normalizar(nome)
+            perfume = db.perfume_por_nome_norm(self.con, nome_norm)
         if perfume:
             return perfume
         return db.criar_perfume(
@@ -619,7 +625,7 @@ class Descoberta:
                 return oferta.preco_bom
         item = catalogo.identificar(achado.titulo, self.itens, achado.marca) if ml else None
         if item and (not item.ml or ml in item.ml):
-            return reais_cheios(item.preco_bom_para(ml))
+            return item.preco_bom_para(ml)
         return None
 
     # ------------------------------------------------------------
@@ -639,23 +645,30 @@ class Descoberta:
         """Decide se avisa. Avisa quando chega no preço; de novo só se baixar mais. Se o preço ficar acima
         do pedido em 2 pesquisas seguidas (~6 h), a próxima queda avisa outra vez: uma pesquisa só acima
         pode ser o anúncio barato que não veio naquela resposta do ML. Devolve True se avisou."""
+        if not self._mesmo_alerta(alerta):
+            return False  # removido (ou o número foi reaproveitado por um alerta novo) durante a pesquisa
         avisado, acima = alerta["avisado_preco"], alerta.get("acima_seguidas") or 0
         avisou = False
         if melhor and melhor[0].preco <= alerta["preco_max"]:
             acima = 0
             if avisado is None or melhor[0].preco < avisado - 0.01:
-                if db.alerta_usuario(self.con, alerta["id"]) is None:
-                    return False  # a pessoa removeu o alerta enquanto a pesquisa rodava
                 if await enviar(alerta, *melhor):
                     avisado, avisou = melhor[0].preco, True
         elif melhor:
             acima += 1
             if acima >= ALERTA_REARMA_APOS:
                 avisado = None
-        db.marcar_alerta_usuario(self.con, alerta["id"], agora, avisado, acima)
+        db.marcar_alerta_usuario(self.con, alerta["id"], agora, avisado, acima, criado_em=alerta["criado_em"])
         return avisou
 
-    async def checar_alertas_usuarios(self, enviar, max_buscas=10):
+    def _mesmo_alerta(self, alerta):
+        """O alerta ainda existe e é o mesmo? (o SQLite reaproveita o número de um alerta apagado: remover e
+        criar de novo enquanto a pesquisa roda faria o aviso sair com o preço velho)"""
+        atual = db.alerta_usuario(self.con, alerta["id"])
+        campos = ("usuario_id", "consulta", "preco_max", "ml", "criado_em")
+        return bool(atual) and all(atual[k] == alerta[k] for k in campos)
+
+    async def checar_alertas_usuarios(self, enviar, max_buscas=20):
         """Pesquisa os alertas mais atrasados (cada um no máximo a cada INTERVALO_ALERTA_USUARIO).
         enviar(alerta, achado, ml, pct) -> bool. Devolve quantos avisou."""
         agora = self.cacador.relogio()
@@ -759,7 +772,7 @@ class Descoberta:
                 return False
             if desconto_min:
                 av = oferta.avaliacao
-                if not (av.referencia and av.pct and av.pct >= desconto_min):
+                if not (av.referencia and pct_inteiro(av.pct) >= desconto_min):
                     return False
             return True
         return passa

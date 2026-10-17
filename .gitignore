@@ -1,5 +1,7 @@
 # segredos
 .env
+# o que o dono muda no config (o config.toml é do bot e vem nas atualizações)
+config.local.toml
 
 # dados do bot
 dados/

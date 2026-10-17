@@ -222,9 +222,10 @@ publico = "masc"
 categoria = "designer"
 
 [[perfumes]]
+id = "jean-paul-gaultier-le-male-le-parfum-parfum"  # id antigo (era "Parfum"): mantém o histórico
 nome = "Le Male Le Parfum"
 marca = "Jean Paul Gaultier"
-concentracao = "Parfum"
+concentracao = "EDP"
 ml = [75, 125, 200]
 ml_ref = 125
 preco_normal = 780
@@ -1245,7 +1246,7 @@ ml_ref = 100
 preco_normal = 620
 preco_bom = 475
 busca = ["bad boy cobalt carolina herrera"]
-evitar = ["elixir", "extreme", "le parfum"]
+evitar = ["elixir", "extreme"]
 publico = "masc"
 categoria = "designer"
 
@@ -1380,7 +1381,8 @@ publico = "masc"
 categoria = "designer"
 
 [[perfumes]]
-nome = "L'Homme"
+id = "prada-l-homme-edt"  # id de quando o nome era só "L'Homme": mantém o histórico
+nome = "Prada L'Homme"
 marca = "Prada"
 concentracao = "EDT"
 ml = [50, 100, 150]
@@ -1448,7 +1450,7 @@ categoria = "designer"
 nome = "CK One"
 marca = "Calvin Klein"
 concentracao = "EDT"
-ml = [100, 200]
+ml = [100]
 ml_ref = 100
 preco_normal = 220
 preco_bom = 170
@@ -1461,7 +1463,7 @@ categoria = "designer"
 nome = "The Golden Secret"
 marca = "Antonio Banderas"
 concentracao = "EDT"
-ml = [50, 100, 200]
+ml = [50, 100]
 ml_ref = 100
 preco_normal = 140
 preco_bom = 110
@@ -1474,7 +1476,7 @@ categoria = "designer"
 nome = "Blue Seduction"
 marca = "Antonio Banderas"
 concentracao = "EDT"
-ml = [50, 100, 200]
+ml = [50, 100]
 ml_ref = 100
 preco_normal = 120
 preco_bom = 90

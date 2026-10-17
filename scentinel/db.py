@@ -407,6 +407,12 @@ def salvar_anuncio_descoberto(con, perfume_id, loja, url, ml, alvo, catalogo_id,
     return anuncio_por_id(con, cur.lastrowid)
 
 
+def limpar_alvo_do_item(con, catalogo_id):
+    """Item tirado do catálogo: os anúncios dele perdem o "preço bom" (a próxima varredura reclassifica)."""
+    con.execute("UPDATE anuncios SET alvo = NULL WHERE catalogo_id = ? AND origem = 'descoberta'", (catalogo_id,))
+    con.commit()
+
+
 def ofertas_recentes_do_item(con, catalogo_id, ml, desde, exceto_id=None, so_oficial=False):
     """Último preço (sem esgotado) de cada anúncio do mesmo item e tamanho, lido desde `desde`."""
     sql = """
@@ -526,9 +532,14 @@ def alertas_usuario_vencidos(con, antes_de, limite):
     )]
 
 
-def marcar_alerta_usuario(con, alerta_id, quando, avisado_preco, acima_seguidas=0):
-    con.execute("UPDATE alertas_usuario SET ultima_busca = ?, avisado_preco = ?, acima_seguidas = ? WHERE id = ?",
-                (para_texto(quando), avisado_preco, acima_seguidas, alerta_id))
+def marcar_alerta_usuario(con, alerta_id, quando, avisado_preco, acima_seguidas=0, criado_em=None):
+    """criado_em: só grava se ainda for o mesmo alerta (o número pode ter sido reaproveitado)."""
+    sql = "UPDATE alertas_usuario SET ultima_busca = ?, avisado_preco = ?, acima_seguidas = ? WHERE id = ?"
+    args = [para_texto(quando), avisado_preco, acima_seguidas, alerta_id]
+    if criado_em is not None:
+        sql += " AND criado_em = ?"
+        args.append(criado_em)
+    con.execute(sql, args)
     con.commit()
 
 

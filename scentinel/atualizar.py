@@ -18,6 +18,11 @@ _SEGREDOS = ("DISCORD_TOKEN", "ML_CLIENT_ID", "ML_CLIENT_SECRET")
 # versão que o bot está rodando (gravada ao ligar): o scentinel-update e o /atualizar comparam com ela, assim
 # código novo baixado mas não reiniciado (ex.: o Discord caiu no meio do /atualizar) não fica esquecido
 ARQ_VERSAO = PASTA_PROJETO / "dados" / "versao_rodando"
+# existe enquanto o /atualizar baixa e testa (guarda o commit de antes): se o bot reiniciar no meio (queda de
+# luz, restart), ao ligar ele volta pra esse commit em vez de rodar código que ninguém testou
+ARQ_PENDENTE = PASTA_PROJETO / "dados" / "atualizacao_pendente"
+_DICA_MEXIDO = ("Parece que algum arquivo do bot foi mudado no notebook (ex.: config.toml). O que você quiser "
+                "mudar no config vai no config.local.toml. Manda print pro Claude.")
 
 
 @dataclass
@@ -32,8 +37,10 @@ class ResultadoAtualizacao:
 
 
 def _rodar(cmd, pasta, tempo_s=180):
-    """(código de saída, saída). Os testes rodam sem os segredos do .env no ambiente."""
+    """(código de saída, saída). Os testes rodam sem os segredos do .env no ambiente, e com o config/catálogo
+    do git (uma configuração do dono não trava a atualização)."""
     ambiente = {k: v for k, v in os.environ.items() if k not in _SEGREDOS}
+    ambiente["SCENTINEL_TESTE_PELO_GIT"] = "1"
     try:
         r = subprocess.run(cmd, cwd=pasta, capture_output=True, text=True, timeout=tempo_s, env=ambiente)
     except subprocess.TimeoutExpired:
@@ -63,17 +70,56 @@ def registrar_versao(pasta=PASTA_PROJETO, rodar=_rodar, arq=None):
     return versao
 
 
-def atualizar(pasta=PASTA_PROJETO, rodar=_rodar, rodando=None):
+def atualizar(pasta=PASTA_PROJETO, rodar=_rodar, rodando=None, pendente=None):
     """rodando: commit que o bot está rodando agora (se for diferente do que está no disco, reinicia mesmo
     sem nada novo no git pull)."""
     cod, antes = rodar(["git", "rev-parse", "HEAD"], pasta)
     if cod:
         return ResultadoAtualizacao(False, linhas=[f"❌ O git não respondeu: {_ultima(antes)}"])
     antes = antes.strip()
+    pendente = pendente or ARQ_PENDENTE
+    try:
+        pendente.parent.mkdir(parents=True, exist_ok=True)
+        pendente.write_text(antes + "\n", encoding="utf-8")
+    except OSError:
+        pass
+    try:  # o marcador some quando termina (dando certo ou não); só fica se o processo morrer no meio
+        return _atualizar(pasta, rodar, rodando, antes)
+    finally:
+        try:
+            pendente.unlink()
+        except OSError:
+            pass
+
+
+def retomar_atualizacao_interrompida(pasta=PASTA_PROJETO, rodar=_rodar, pendente=None):
+    """Ao ligar: se um /atualizar morreu no meio (marcador ficou), volta o código pro commit de antes.
+    Devolve True se voltou (aí o bot sai e o systemd liga de novo já no código de antes)."""
+    pendente = pendente or ARQ_PENDENTE
+    try:
+        antes = pendente.read_text(encoding="utf-8").strip()
+    except OSError:
+        return False
+    try:
+        pendente.unlink()  # tenta uma vez só: nunca vira um liga-desliga sem fim
+    except OSError:
+        pass
+    cod, atual = rodar(["git", "rev-parse", "HEAD"], pasta)
+    if not antes or cod or atual.strip() == antes:
+        return False
+    cod, saida = rodar(["git", "reset", "-q", "--keep", antes], pasta)
+    return cod == 0
+
+
+def _atualizar(pasta, rodar, rodando, antes):
     cod, saida = rodar(["git", "pull", "--ff-only", "-q"], pasta)
     if cod:
-        return ResultadoAtualizacao(False, linhas=[f"❌ O git pull não deu: {_ultima(saida)}",
-                                                   "Roda o `scentinel-update` no notebook e manda print pro Claude."])
+        linhas = [f"❌ O git pull não deu: {_ultima(saida)}"]
+        if "overwritten" in saida or "local changes" in saida:
+            linhas.append(_DICA_MEXIDO)
+        else:
+            linhas.append("Roda o `scentinel-update` no notebook e manda print pro Claude.")
+        return ResultadoAtualizacao(False, linhas=linhas)
     depois = rodar(["git", "rev-parse", "HEAD"], pasta)[1].strip()
     base = antes
     if depois == antes:
@@ -93,9 +139,12 @@ def atualizar(pasta=PASTA_PROJETO, rodar=_rodar, rodando=None):
         return rodar(["git", "diff", "--quiet", base, depois, "--", *arquivos], pasta)[0] != 0
 
     def desfazer(motivo):
-        if antes == depois:
+        # volta pro que estava antes do pull; se nada veio no pull, pro que o bot está rodando (o código
+        # parado no disco não passou nos testes: não pode ligar no próximo restart)
+        alvo = antes if antes != depois else base
+        if alvo == depois:
             return ResultadoAtualizacao(False, linhas=linhas + [motivo, "Não reiniciei: o bot segue como estava."])
-        cod, saida = rodar(["git", "reset", "-q", "--keep", antes], pasta)
+        cod, saida = rodar(["git", "reset", "-q", "--keep", alvo], pasta)
         if cod:
             return ResultadoAtualizacao(False, linhas=linhas + [
                 motivo, f"⚠️ E não consegui voltar o código ({_ultima(saida)}). O bot segue rodando a versão de "

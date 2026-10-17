@@ -70,6 +70,10 @@ def horarios_vitrine(minutos, fuso_nome):
     return [dt.time(m // 60, m % 60, tzinfo=tz) for m in range(0, 24 * 60, passo)]
 
 
+_SEM_PERMISSAO_CARGO = ("❌ Me falta a permissão **Gerenciar cargos** (ou o meu cargo está abaixo desses no "
+                        "servidor). Avisa um admin.")
+
+
 def estilos_do_membro(membro):
     """Chaves dos estilos que a pessoa tem como cargo agora."""
     nomes = {getattr(c, "name", None) for c in getattr(membro, "roles", [])}
@@ -91,7 +95,7 @@ def quem_marcar(prefs, oferta, ultimos, agora, excluir=()):
     vezes pelo mesmo anúncio em 24 h. `ultimos` (id -> última marcação) é atualizado."""
     if oferta.origem != "descoberta" or not formato.tem_desconto(oferta):
         return []
-    pct = oferta.avaliacao.pct
+    pct = formato.pct_inteiro(oferta.avaliacao.pct)  # o mesmo número que aparece no post
     ids = []
     for p in prefs:
         uid = p["usuario_id"]
@@ -124,6 +128,7 @@ async def alternar_cargo(interaction, chave):
         return
     membro = interaction.user
     estilos = set(estilos_do_membro(membro))
+    await interaction.response.defer(ephemeral=True, thinking=True)  # mexer em cargo pode passar dos 3 s
     try:
         if any(c.id == cargo.id for c in getattr(membro, "roles", [])):
             await membro.remove_roles(cargo, reason="botão de cargos do Scentinel")
@@ -134,12 +139,14 @@ async def alternar_cargo(interaction, chave):
             estilos.add(chave)
             texto = f"✅ Te dei o **{nome}**.\n"
     except discord.Forbidden:
-        await interaction.response.send_message(
-            "❌ Me falta a permissão **Gerenciar cargos** (ou o meu cargo está abaixo desse no servidor). "
-            "Avisa um admin.", ephemeral=True)
+        await interaction.followup.send(_SEM_PERMISSAO_CARGO, ephemeral=True)
+        return
+    except discord.HTTPException:
+        log.exception("botão de cargo")
+        await interaction.followup.send("😵 O Discord não deixou agora. Tenta de novo em um minutinho.", ephemeral=True)
         return
     pref = db.salvar_preferencia(interaction.client.con, membro.id, estilos=estilos)
-    await interaction.response.send_message(texto + texto_preferencia(estilos, pref["pct_min"]), ephemeral=True)
+    await interaction.followup.send(texto + texto_preferencia(estilos, pref["pct_min"]), ephemeral=True)
 
 
 async def escolher_pct(interaction, pct):
@@ -154,18 +161,21 @@ async def tirar_cargos(interaction):
     membro = interaction.user
     nomes = set(CARGOS.values())
     meus = [c for c in getattr(membro, "roles", []) if getattr(c, "name", None) in nomes]
+    await interaction.response.defer(ephemeral=True, thinking=True)
     try:
         if meus:
             await membro.remove_roles(*meus, reason="botão de cargos do Scentinel")
     except discord.Forbidden:
-        await interaction.response.send_message(
-            "❌ Me falta a permissão **Gerenciar cargos** (ou o meu cargo está abaixo desses no servidor). "
-            "Avisa um admin.", ephemeral=True)
+        await interaction.followup.send(_SEM_PERMISSAO_CARGO, ephemeral=True)
+        return
+    except discord.HTTPException:
+        log.exception("botão tirar cargos")
+        await interaction.followup.send("😵 O Discord não deixou agora. Tenta de novo em um minutinho.", ephemeral=True)
         return
     db.salvar_preferencia(interaction.client.con, membro.id, estilos=[])
     texto = (f"🔕 Tirei {', '.join(c.name for c in meus)}. Não te marco mais em nada." if meus
              else "🔕 Você não tinha nenhum cargo de estilo. Não te marco em nada.")
-    await interaction.response.send_message(texto, ephemeral=True)
+    await interaction.followup.send(texto, ephemeral=True)
 
 
 class BotaoTirarCargos(discord.ui.Button):
@@ -224,7 +234,7 @@ def embed_cargos():
             f"**2. Embaixo, a partir de quantos % OFF** te marco (se não escolher: {PCT_PADRAO}%).\n"
             "🔕 **Tirar meus cargos**: sai de tudo de uma vez.\n\n"
             "Aí, quando sair post com esse desconto num estilo seu, eu te marco. No máximo 1 marcação a cada "
-            "30 min (promo maior passa na frente), e nunca 2 vezes pelo mesmo anúncio."
+            "30 min (promo maior passa na frente), e o mesmo anúncio não te marca de novo no mesmo dia."
         ),
     }
 
@@ -254,7 +264,7 @@ class BotScentinel(discord.Client):
         self.descoberta = None
         if cfg.descoberta.ativo:
             itens = catalogo.carregar_catalogo()
-            itens += autocatalogo.itens_salvos({i.id for i in itens})  # o que o catálogo automático já pôs
+            itens += autocatalogo.itens_salvos({i.id for i in itens}, manuais=itens)  # o automático já pôs
             fontes = montar_fontes(cfg.descoberta.fontes)
             if itens and fontes:
                 self.descoberta = Descoberta(self.cacador, itens, fontes, enviar_aviso=self.enviar_aviso)
@@ -637,20 +647,43 @@ def _nome_alerta(alerta):
     return alerta["consulta"] + (f" {alerta['ml']:g}ml" if alerta.get("ml") else "")
 
 
-def texto_alerta_criado(alerta, res, melhor):
+def texto_alerta_criado(alerta, res, melhor, preco_bom=None):
     fr = formato.formatar_reais
     texto = (f"🔔 Alerta #{alerta['id']} criado: **{_nome_alerta(alerta)}** até **{fr(alerta['preco_max'])}**.\n"
-             "Eu te marco no canal quando chegar nesse preço (confiro a cada ~3 h).")
+             "Eu te marco no canal quando chegar nesse preço (confiro a cada 3-4 h).")
     if melhor and melhor[0].preco <= alerta["preco_max"]:
         texto += f"\n🎉 Já tá nesse preço agora: **{fr(melhor[0].preco)}** · [ver anúncio]({melhor[0].url})"
     elif melhor:
         texto += f"\nAgora o mais barato tá **{fr(melhor[0].preco)}** · [ver anúncio]({melhor[0].url})"
+    elif res.ofertas and alerta.get("ml"):
+        tamanhos = sorted({f"{ml:g}ml" for _, ml, _ in res.ofertas if ml})
+        texto += (f"\n⚠️ Achei esse perfume, mas agora não no tamanho {alerta['ml']:g}ml"
+                  + (f" (só {', '.join(tamanhos)})" if tamanhos else "") + ". O alerta fica valendo mesmo assim.")
     elif res.lojas_ok:
         texto += ("\n⚠️ Agora não achei esse perfume no catálogo do Mercado Livre. Confere o nome com o `/locate`"
                   " (o alerta fica valendo mesmo assim).")
     else:
         texto += "\n⚠️ O Mercado Livre não respondeu agora; eu confiro mais tarde."
+    if melhor:
+        texto += "\n" + formato.linha_preco_bom(melhor[0].preco, preco_bom)
     return texto
+
+
+def recusa_alerta(bot, interaction, consulta, ml):
+    """Motivo pra não criar o alerta (limite, servidor cheio, repetido) ou None. Sem await: dá pra chamar de
+    novo logo antes de gravar, e dois cliques rápidos não criam o mesmo alerta duas vezes."""
+    meus = db.alertas_do_usuario(bot.con, interaction.user.id)
+    limite = MAX_ALERTAS_DONO if bot.eh_dono(interaction) else MAX_ALERTAS_POR_PESSOA
+    if len(meus) >= limite:
+        return f"Você já tem {len(meus)} alertas (o máximo é {limite}). Tira um com `/alerta remover`."
+    if db.contar_alertas_usuario(bot.con) >= MAX_ALERTAS_TOTAL:
+        return "O servidor já tem alertas demais agora (cada um é uma pesquisa no ML). Tenta mais tarde."
+    repetido = next((a for a in meus if busca.normalizar(a["consulta"]) == busca.normalizar(consulta)
+                     and a["ml"] == ml), None)
+    if repetido:
+        return (f"Você já tem esse alerta (#{repetido['id']}, até {formato.formatar_reais(repetido['preco_max'])}). "
+                "Pra mudar o preço, remove com `/alerta remover` e cria de novo.")
+    return None
 
 
 def texto_alertas(alertas):
@@ -677,15 +710,21 @@ async def autocomplete_meus_alertas(interaction, atual):
     return escolhas[:25]
 
 
-def texto_catalogo_auto(itens):
+def texto_catalogo_auto(itens, limite=1900):
     if not itens:
         return "📚 O catálogo automático ainda não pôs nenhum perfume."
-    linhas = [f"📚 **Catálogo automático: {len(itens)} perfume(s)**"]
-    for i in itens[-40:]:
-        linhas.append(f"• {i.nome_exibicao} ({i.marca}) · {i.rotulo_categoria} · normal ~"
-                      f"{formato.formatar_reais(i.preco_normal)} ({i.ml_ref:g}ml)")
-    linhas.append("Pra tirar um: `/catalogo remover`")
-    return "\n".join(linhas)
+    cabecalho = f"📚 **Catálogo automático: {len(itens)} perfume(s)** (os mais novos primeiro)"
+    rodape = "Pra tirar um: `/catalogo remover`"
+    linhas, tamanho = [], len(cabecalho) + len(rodape) + 40
+    for i in reversed(itens):
+        linha = (f"• {i.nome_exibicao} ({i.marca}) · {i.rotulo_categoria} · normal ~"
+                 f"{formato.formatar_reais(i.preco_normal)} ({i.ml_ref:g}ml)")
+        if tamanho + len(linha) > limite:
+            linhas.append(f"• ... e mais {len(itens) - len(linhas)} mais antigos")
+            break
+        linhas.append(linha)
+        tamanho += len(linha) + 1
+    return "\n".join([cabecalho, *linhas, rodape])
 
 
 async def autocomplete_catalogo_auto(interaction, atual):
@@ -711,10 +750,13 @@ ESCOLHAS_ESTILO = [app_commands.Choice(name=rotulo, value=valor) for valor, rotu
 ESCOLHAS_ESTILO.append(app_commands.Choice(name="🧴 Outras marcas", value=catalogo.OUTROS))
 
 
-def texto_send(enviadas, numero, estilo=None, ate=None, desconto=None, resumo=None):
+def texto_send(enviadas, numero, estilo=None, ate=None, desconto=None, resumo=None, falhou=False):
     filtros = [x for x in (estilo, f"até {formato.formatar_reais(ate)}" if ate else None,
                            f"{desconto}%+ OFF" if desconto else None) if x]
     com = f" ({', '.join(filtros)})" if filtros else ""
+    if falhou:
+        return (f"⚠️ Mandei {enviadas} e aí o Discord não deixou mandar mais no canal. Confere se eu posso mandar "
+                "mensagem lá e tenta de novo daqui a pouco.")
     if enviadas == numero:
         return f"🛍️ Mandei {enviadas} oferta(s){com} no canal."
     if enviadas:
@@ -982,12 +1024,18 @@ def registrar_comandos(tree):
                 if not discord.utils.get(interaction.guild.roles, name=nome):
                     await interaction.guild.create_role(name=nome, mentionable=True, reason="/cargos do Scentinel")
                     criados.append(nome)
-            await interaction.channel.send(embed=discord.Embed.from_dict(embed_cargos()), view=BotoesCargos())
         except discord.Forbidden:
             await interaction.edit_original_response(content=(
                 "❌ Me falta a permissão **Gerenciar cargos**. Abre de novo o link de convite pra atualizar: "
                 f"{link_convite(interaction.client.application_id)}\n"
                 "(ou: Configurações do servidor → Cargos → Scentinel → liga Gerenciar cargos)"))
+            return
+        try:
+            await interaction.channel.send(embed=discord.Embed.from_dict(embed_cargos()), view=BotoesCargos())
+        except discord.Forbidden:
+            await interaction.edit_original_response(content=(
+                "❌ Não consigo mandar mensagem neste canal. Nas configurações do canal, deixa o Scentinel "
+                "**Ver canal**, **Enviar mensagens** e **Inserir links**, e roda o `/cargos` de novo."))
             return
         texto = f"✅ Criei: {', '.join(criados)}." if criados else "✅ Os cargos já existiam."
         await interaction.edit_original_response(
@@ -1019,9 +1067,18 @@ def registrar_comandos(tree):
         filtro = None
         if valor_estilo or ate or desconto:
             filtro = bot.descoberta.filtro_oferta(valor_estilo, ate, desconto)
-        enviadas = await bot.descoberta.mandar_varias(numero, bot.enviar_vitrine, filtro=filtro)
+        falhas = []
+
+        async def enviar(oferta):
+            ok = await bot.enviar_vitrine(oferta)
+            if not ok:
+                falhas.append(oferta)
+            return ok
+
+        enviadas = await bot.descoberta.mandar_varias(numero, enviar, filtro=filtro)
         await interaction.followup.send(texto_send(enviadas, numero, estilo.name if estilo else None, ate, desconto,
-                                                   bot.descoberta.resumo_vitrine()), ephemeral=True)
+                                                   bot.descoberta.resumo_vitrine(), falhou=bool(falhas)),
+                                        ephemeral=True)
 
     @tree.command(name="despausar", description="Tira a pausa das lojas agora (só o dono)")
     async def despausar(interaction: discord.Interaction):
@@ -1068,31 +1125,23 @@ def registrar_comandos(tree):
         if not busca.normalizar(consulta):
             await interaction.response.send_message("Escreve o nome do perfume 🙂", ephemeral=True)
             return
-        meus = db.alertas_do_usuario(bot.con, interaction.user.id)
-        limite = MAX_ALERTAS_DONO if bot.eh_dono(interaction) else MAX_ALERTAS_POR_PESSOA
-        if len(meus) >= limite:
-            await interaction.response.send_message(
-                f"Você já tem {len(meus)} alertas (o máximo é {limite}). Tira um com `/alerta remover`.", ephemeral=True)
-            return
-        if db.contar_alertas_usuario(bot.con) >= MAX_ALERTAS_TOTAL:
-            await interaction.response.send_message(
-                "O servidor já tem alertas demais agora (cada um é uma pesquisa no ML). Tenta mais tarde.",
-                ephemeral=True)
-            return
-        repetido = next((a for a in meus if busca.normalizar(a["consulta"]) == busca.normalizar(consulta)
-                         and a["ml"] == ml), None)
-        if repetido:
-            await interaction.response.send_message(
-                f"Você já tem esse alerta (#{repetido['id']}, até {formato.formatar_reais(repetido['preco_max'])}). "
-                "Pra mudar o preço, remove com `/alerta remover` e cria de novo.", ephemeral=True)
+        recusa = recusa_alerta(bot, interaction, consulta, ml)
+        if recusa:
+            await interaction.response.send_message(recusa, ephemeral=True)
             return
         await interaction.response.defer(thinking=True, ephemeral=True)
         res = await bot.descoberta.buscar_ao_vivo(consulta)
         melhor = bot.descoberta.melhor_do_alerta(res, ml)
+        recusa = recusa_alerta(bot, interaction, consulta, ml)  # de novo: outro clique pode ter criado no meio
+        if recusa:
+            await interaction.edit_original_response(content=recusa)
+            return
         ja = melhor[0].preco if melhor and melhor[0].preco <= preco else None  # já tá no preço: avisa aqui mesmo
         alerta = db.criar_alerta_usuario(bot.con, interaction.user.id, consulta, preco, ml, avisado_preco=ja,
                                          buscado=bool(res.lojas_ok))
-        await interaction.edit_original_response(content=formato.cortar(texto_alerta_criado(alerta, res, melhor), 1900))
+        bom = bot.descoberta.preco_bom_do_achado(*melhor[:2]) if melhor else None
+        await interaction.edit_original_response(
+            content=formato.cortar(texto_alerta_criado(alerta, res, melhor, bom), 1900))
 
     @grupo_alerta.command(name="lista", description="Mostra os seus alertas de preço")
     async def alerta_lista(interaction: discord.Interaction):
@@ -1151,8 +1200,13 @@ def registrar_comandos(tree):
             return
         await interaction.response.defer(thinking=True, ephemeral=True)
         novos = await interaction.client.rodar_autocatalogo()
-        texto = (f"📚 Entraram {len(novos)} perfume(s) (mandei a lista no canal)." if novos else
-                 "📚 Nada novo agora: nenhum masculino/unissex de marca conhecida visto mais de uma vez na semana.")
+        if novos:
+            texto = f"📚 Entraram {len(novos)} perfume(s) (mandei a lista no canal)."
+        elif not autocatalogo.vagas():
+            texto = (f"📚 O catálogo automático está cheio ({autocatalogo.MAX_TOTAL} perfumes). Tira algum com "
+                     "`/catalogo remover` (ou espera: quem some do ML por 30 dias sai sozinho).")
+        else:
+            texto = "📚 Nada novo agora: nenhum masculino/unissex de marca conhecida visto mais de uma vez na semana."
         await interaction.edit_original_response(content=texto)
 
     tree.add_command(grupo_catalogo)

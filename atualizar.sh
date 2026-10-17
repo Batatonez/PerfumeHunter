@@ -18,8 +18,13 @@ REINICIAR=0
 
 echo "🐈‍⬛ Atualizando o Scentinel em $(pwd)"
 ANTES=$(git rev-parse HEAD)
-if ! git pull --ff-only -q; then
+if ! SAIDA_PULL=$(git pull --ff-only -q 2>&1); then
+    echo "$SAIDA_PULL" | tail -n 5
     echo "❌ O git pull não deu. Manda print disso pro Claude."
+    if echo "$SAIDA_PULL" | grep -q -e "overwritten" -e "local changes"; then
+        echo "   (algum arquivo do bot foi mudado aqui no notebook, tipo o config.toml: o que você quiser"
+        echo "    mudar no config vai no config.local.toml)"
+    fi
     exit 1
 fi
 DEPOIS=$(git rev-parse HEAD)
@@ -47,14 +52,16 @@ if [ -n "$BASE" ]; then
     mudou() { ! git diff --quiet "$BASE" "$DEPOIS" -- "$@" 2>/dev/null; }
     desfazer() {
         echo "$1"
-        if [ "$ANTES" != "$DEPOIS" ]; then
-            if git reset -q --keep "$ANTES"; then
-                echo "   Voltei pro código de antes e NÃO reiniciei o bot. Manda print disso pro Claude."
-            else
-                echo "   ⚠️ E não consegui voltar o código. NÃO reiniciei o bot. Manda print disso pro Claude."
-            fi
-        else
+        # volta pro que estava antes do pull; se nada veio no pull, pro que o bot está rodando (o código parado
+        # no disco não passou: não pode ligar no próximo restart)
+        ALVO="$ANTES"
+        [ "$ANTES" = "$DEPOIS" ] && ALVO="$BASE"
+        if [ "$ALVO" = "$DEPOIS" ]; then
             echo "   NÃO reiniciei o bot (ele segue na versão que estava rodando). Manda print disso pro Claude."
+        elif git reset -q --keep "$ALVO"; then
+            echo "   Voltei pro código de antes e NÃO reiniciei o bot. Manda print disso pro Claude."
+        else
+            echo "   ⚠️ E não consegui voltar o código. NÃO reiniciei o bot. Manda print disso pro Claude."
         fi
         exit 1
     }
@@ -75,19 +82,23 @@ if [ -n "$BASE" ]; then
     fi
 
     echo "🧪 Rodando os testes..."
-    if ! .venv/bin/python -m pytest -q -p no:cacheprovider >/tmp/scentinel-testes.log 2>&1; then
+    # SCENTINEL_TESTE_PELO_GIT: os testes usam o config/catálogo do git (configuração sua não trava a atualização)
+    if ! SCENTINEL_TESTE_PELO_GIT=1 .venv/bin/python -m pytest -q -p no:cacheprovider >/tmp/scentinel-testes.log 2>&1; then
         tail -n 15 /tmp/scentinel-testes.log
         desfazer "❌ Os testes falharam."
     fi
     echo "   $(tail -n 1 /tmp/scentinel-testes.log)"
+fi
 
-    if mudou scentinel.service; then
-        echo "⚙️  O serviço do systemd mudou: atualizando (pede a senha)..."
-        USUARIO="${USER:-$(id -un)}"
-        sed -e "s|__USUARIO__|$USUARIO|g" -e "s|__PASTA__|$(pwd)|g" scentinel.service > dados/scentinel.service
-        sudo cp dados/scentinel.service /etc/systemd/system/scentinel.service
-        sudo systemctl daemon-reload
-    fi
+# o serviço do systemd instalado é igual ao do código? (confere sempre, até no --reiniciar: o /atualizar não
+# tem senha pra instalar, então uma mudança dele espera aqui)
+USUARIO="${USER:-$(id -un)}"
+mkdir -p dados
+sed -e "s|__USUARIO__|$USUARIO|g" -e "s|__PASTA__|$(pwd)|g" scentinel.service > dados/scentinel.service
+if ! cmp -s dados/scentinel.service /etc/systemd/system/scentinel.service; then
+    echo "⚙️  O serviço do systemd mudou: atualizando (pede a senha)..."
+    sudo cp dados/scentinel.service /etc/systemd/system/scentinel.service
+    sudo systemctl daemon-reload
 fi
 
 echo "🔄 Reiniciando o bot (pede a senha do notebook)..."

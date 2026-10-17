@@ -4,6 +4,7 @@ Os embeds são montados como dict puro (testável) e viram discord.Embed
 com discord.Embed.from_dict() no bot.
 """
 
+import math
 from datetime import UTC, timedelta, timezone
 
 from scentinel.promo import FONTE_CATALOGO, FONTE_LOJA, FONTE_MERCADO
@@ -30,9 +31,9 @@ def formatar_reais(valor):
     return "R$ " + texto.replace(",", "X").replace(".", ",").replace("X", ".")
 
 
-def reais_inteiros(valor):
-    """R$ sem centavos, pra baixo (559,92 -> 'R$ 559'): "abaixo de R$ 559" continua verdade."""
-    return formatar_reais(int(valor)).removesuffix(",00")
+def reais_curto(valor):
+    """'R$ 660' quando não tem centavos, 'R$ 438,60' quando tem (o valor exato que o bot usa pra decidir)."""
+    return formatar_reais(valor).removesuffix(",00")
 
 
 def linha_preco_bom(preco, preco_bom):
@@ -40,18 +41,24 @@ def linha_preco_bom(preco, preco_bom):
     if not preco_bom:
         return "💸 Ainda não sei o preço bom desse perfume (pouco histórico): compara antes de comprar"
     status = "✅ esse tá bom" if preco <= preco_bom else "⚠️ esse ainda tá acima"
-    return f"💸 Abaixo de {reais_inteiros(preco_bom)}, preço bom pra esse perfume · {status}"
+    return f"💸 Abaixo de {reais_curto(preco_bom)}, preço bom pra esse perfume · {status}"
 
 
 def curto_preco_bom(preco, preco_bom):
     """Versão curta pras listas (top): '✅ bom abaixo de R$ 559' / '⚠️ bom abaixo de R$ 559'."""
     if not preco_bom:
         return "💸 preço bom: ainda não sei"
-    return f"{'✅' if preco <= preco_bom else '⚠️'} bom abaixo de {reais_inteiros(preco_bom)}"
+    return f"{'✅' if preco <= preco_bom else '⚠️'} bom abaixo de {reais_curto(preco_bom)}"
+
+
+def pct_inteiro(pct):
+    """% OFF que aparece no post: arredondado PRA BAIXO (29,6% é '29%'), assim nunca promete mais do que é e
+    bate com os botões de % e o filtro do /send (quem pediu 30%+ é marcado quando o post diz 30% ou mais)."""
+    return math.floor((pct or 0) + 1e-9)
 
 
 def formatar_pct(pct):
-    return f"{pct:.0f}%"
+    return f"{pct_inteiro(pct)}%"
 
 
 def formatar_data(momento, nome_fuso="America/Sao_Paulo"):
@@ -106,10 +113,9 @@ def linhas_detalhe(oferta):
         linhas.append("📊 comparado com o preço normal de mercado")
     elif oferta.avaliacao.fonte == FONTE_MERCADO:
         linhas.append("📊 comparado com a 2ª loja mais barata")
-    if oferta.origem == "descoberta":
-        linhas.append(linha_preco_bom(oferta.preco, oferta.preco_bom))  # sempre: pra não cair em promo ruim
-    elif oferta.bateu_alvo and oferta.alvo:
+    if oferta.origem != "descoberta" and oferta.bateu_alvo and oferta.alvo:
         linhas.append(f"🎯 Bateu seu alvo de {formatar_reais(oferta.alvo)}")
+    linhas.append(linha_preco_bom(oferta.preco, oferta.preco_bom))  # sempre: pra não cair em promo ruim
     selos = [s for s in (oferta.categoria, "🛡️ Loja oficial" if oferta.oficial else None) if s]
     if selos:
         linhas.append(" · ".join(selos))
@@ -260,7 +266,9 @@ def embed_top_semana(itens, nome_fuso="America/Sao_Paulo"):
                  f"🏷️ **{formatar_pct(it['pct'])} OFF** · {formatar_reais(it['preco'])} em "
                  f"{formatar_data(it['quando'], nome_fuso)[:5]}")
         if atual and not atual.esgotado:
-            if atual.preco <= it["preco"] * 1.02:
+            if atual.preco < it["preco"] - 0.01:
+                linha += f" · agora tá ainda mais barato: {formatar_reais(atual.preco)}"
+            elif atual.preco <= it["preco"] * 1.02:
                 linha += " · ainda nesse preço"
             else:
                 linha += f" · agora {formatar_reais(atual.preco)}"
@@ -405,7 +413,7 @@ def embed_catalogo_novo(itens):
     for i in itens:
         linhas.append(f"• **{i.nome_exibicao}** ({i.marca}) · {i.rotulo_categoria} · normal ~"
                       f"{formatar_reais(i.preco_normal)} ({i.ml_ref:g}ml) · 💸 bom abaixo de "
-                      f"{reais_inteiros(i.preco_bom)}")
+                      f"{reais_curto(i.preco_bom)}")
     return {
         "title": f"📚 {len(itens)} perfume(s) novo(s) no catálogo",
         "color": COR_NEUTRA,

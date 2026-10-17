@@ -104,10 +104,10 @@ def test_codigo_baixado_mas_nao_reiniciado_reinicia_agora():
     res = atualizar(rodar=sh, rodando="aaa")
     assert res.ok and res.reiniciar and "ainda rodava a versão antiga" in res.texto
     assert ["git", "diff", "--quiet", "aaa", "bbb", "--", "requirements.txt"] in sh.comandos
-    # e com teste falhando: não reinicia nem mexe no git (o código já estava assim antes do pull)
+    # e com teste falhando: não reinicia, e o código parado no disco volta pro que está rodando
     sh = Shell(antes="bbb", depois="bbb", testes_ok=False)
     res = atualizar(rodar=sh, rodando="aaa")
-    assert not res.reiniciar and not any(c[:2] == ["git", "reset"] for c in sh.comandos)
+    assert not res.reiniciar and ["git", "reset", "-q", "--keep", "aaa"] in sh.comandos
 
 
 def test_reset_que_falha_avisa():
@@ -163,3 +163,60 @@ def test_reinicia_mesmo_se_o_discord_falhar_na_resposta():
     finally:
         mod.atualizar = original
     assert fechou and bot.reiniciar
+
+
+def test_atualizacao_interrompida_volta_o_codigo(tmp_path):
+    """O bot reiniciou no meio do /atualizar (queda de luz, restart): ao ligar, volta pro commit de antes."""
+    from scentinel.atualizar import retomar_atualizacao_interrompida
+
+    pendente = tmp_path / "atualizacao_pendente"
+    sh = Shell(antes="bbb")  # o HEAD agora é o código novo (não testado)
+    assert not retomar_atualizacao_interrompida(rodar=sh, pendente=pendente)  # sem marcador: nada
+    pendente.write_text("aaa\n")
+    assert retomar_atualizacao_interrompida(rodar=sh, pendente=pendente)
+    assert ["git", "reset", "-q", "--keep", "aaa"] in sh.comandos and not pendente.exists()
+
+
+def test_marcador_some_quando_o_atualizar_termina(tmp_path):
+    pendente = tmp_path / "atualizacao_pendente"
+    vistos = []
+
+    class ShellQueOlha(Shell):
+        def __call__(self, cmd, pasta, tempo_s=180):
+            if cmd[:2] == ["git", "pull"]:
+                vistos.append(pendente.read_text().strip())  # durante o pull o marcador existe
+            return super().__call__(cmd, pasta, tempo_s)
+
+    atualizar(rodar=ShellQueOlha(testes_ok=False), pendente=pendente)
+    assert vistos == ["aaa"] and not pendente.exists()
+
+
+def test_teste_falhou_com_codigo_parado_volta_pro_que_esta_rodando():
+    """Nada novo no pull, mas o código no disco (não rodando) falha nos testes: volta pro que o bot roda,
+    senão ele liga no próximo restart."""
+    sh = Shell(antes="bbb", depois="bbb", testes_ok=False)
+    res = atualizar(rodar=sh, rodando="aaa")
+    assert not res.reiniciar and ["git", "reset", "-q", "--keep", "aaa"] in sh.comandos
+
+
+def test_pull_com_arquivo_mexido_explica():
+    class ShellMexido(Shell):
+        def __call__(self, cmd, pasta, tempo_s=180):
+            if cmd[:2] == ["git", "pull"]:
+                return 1, "error: Your local changes to the following files would be overwritten by merge:\n\tconfig.toml"
+            return super().__call__(cmd, pasta, tempo_s)
+
+    res = atualizar(rodar=ShellMexido())
+    assert "config.local.toml" in res.texto
+
+
+def test_config_local_por_cima_e_testes_nao_veem(tmp_path):
+    from scentinel import config
+
+    base = config.ARQ_CONFIG
+    local = tmp_path / "config.local.toml"
+    local.write_text('[descoberta]\nvitrine_minutos = 30\ntop_n = 3\n', encoding="utf-8")
+    cfg = config.carregar_config(base, local)
+    assert cfg.descoberta.vitrine_minutos == 30 and cfg.descoberta.top_n == 3
+    assert cfg.descoberta.publico == "masculino" and len(cfg.niveis) == 5  # o resto continua do config.toml
+    assert config.carregar_config().descoberta.vitrine_minutos == 15  # nos testes, o config.local.toml não existe
